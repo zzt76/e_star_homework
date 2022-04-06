@@ -1,0 +1,11 @@
+.build
+.debug
+.DS_Store
+.git
+.svn
+tags
+.gdb_history
+.vscode
+*.TMP
+build
+/cmake-build-debug-visual-studio/
