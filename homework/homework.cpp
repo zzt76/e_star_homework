@@ -184,6 +184,8 @@ namespace {
 
             m_timeOffset = bx::getHPCounter();
 
+            num_boxes = 10;
+
             imguiCreate();
         }
 
@@ -224,6 +226,8 @@ namespace {
                 ImGui::Checkbox("Write G", &m_g);
                 ImGui::Checkbox("Write B", &m_b);
                 ImGui::Checkbox("Write A", &m_a);
+
+                ImGui::SliderInt("Numbers", &num_boxes, 1, 100);
 
                 ImGui::Text("Primitive topology:");
                 ImGui::Combo("##topology", (int *) &m_pt, s_ptNames, BX_COUNTOF(s_ptNames));
@@ -268,8 +272,8 @@ namespace {
                                  | s_ptState[m_pt];
 
                 // Submit 11x11 cubes
-                for (int yy = 0; yy < 11; ++yy) {
-                    for (int xx = 0; xx < 11; ++xx) {
+                for (int yy = 0; yy < num_boxes; ++yy) {
+                    for (int xx = 0; xx < num_boxes; ++xx) {
                         float model_matrix[16];
                         // Rotate the boxes according to time
                         bx::mtxRotateXY(model_matrix, time + xx * 0.21f, time + yy * 0.37f);
@@ -321,6 +325,8 @@ namespace {
         bool m_g;
         bool m_b;
         bool m_a;
+
+        int32_t num_boxes;
     };
 
 } // namespace

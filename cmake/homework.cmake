@@ -13,7 +13,6 @@ target_include_directories(homework PRIVATE ${HOMEWORK_DIR})
 add_custom_target(shaders
         ALL
         SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vs_cubes.sc ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fs_cubes.sc
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/glsl/vs_cubes.bin ${CMAKE_CURRENT_SOURCE_DIR}/shaders/glsl/fs_cubes.bin
         )
 add_custom_command(TARGET shaders
         PRE_BUILD
