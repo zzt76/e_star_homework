@@ -6,7 +6,6 @@
 #include "common.h"
 #include "bgfx_utils.h"
 #include "imgui/imgui.h"
-#include <filesystem>
 
 namespace {
 
@@ -22,7 +21,7 @@ namespace {
             ms_layout
                     .begin()
                     .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-                    .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
+                    .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
                     .end();
         }
 
@@ -185,7 +184,6 @@ namespace {
 
             m_timeOffset = bx::getHPCounter();
 
-            
             imguiCreate();
         }
 
