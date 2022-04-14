@@ -3,8 +3,7 @@ set(HOMEWORK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/homework")
 # 在此处添加文件
 set(HOMEWORK_SOURCES
         ${HOMEWORK_DIR}/homework.cpp
-        ${HOMEWORK_DIR}/bgfx_logo.h
-        )
+        ${HOMEWORK_DIR}/meshproducer.h)
 
 add_executable(homework ${HOMEWORK_SOURCES})
 target_link_libraries(homework example-common)
