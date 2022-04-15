@@ -128,25 +128,31 @@ namespace RenderCore::Cubes {
                                          PosColorVertex::ms_layout);
     }
 
-    static void create_cubes_index_buffer(bgfx::IndexBufferHandle *m_ibh) {
+    static void create_cubes_index_buffer_array(bgfx::IndexBufferHandle *m_ibhs) {
         // 4 different index buffer for rendering
         // Create static index buffer for triangle list rendering
-        m_ibh[0] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeTriList, sizeof(s_cubeTriList)));
+        m_ibhs[0] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeTriList, sizeof(s_cubeTriList)));
 
         // Create static index buffer for triangle strip rendering
-        m_ibh[1] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeTriStrip, sizeof(s_cubeTriStrip)));
+        m_ibhs[1] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeTriStrip, sizeof(s_cubeTriStrip)));
 
         // Create static index buffer for line list rendering
-        m_ibh[2] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeLineList, sizeof(s_cubeLineList)));
+        m_ibhs[2] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeLineList, sizeof(s_cubeLineList)));
 
         // Create static index buffer for line strip rendering
-        m_ibh[3] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeLineStrip, sizeof(s_cubeLineStrip)));
+        m_ibhs[3] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeLineStrip, sizeof(s_cubeLineStrip)));
 
         // Create static index buffer for point list rendering, only render points
-        m_ibh[4] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubePoints, sizeof(s_cubePoints)));
+        m_ibhs[4] = bgfx::createIndexBuffer(bgfx::makeRef(s_cubePoints, sizeof(s_cubePoints)));
     }
 
-    static void init(bgfx::VertexBufferHandle &m_vbh, bgfx::IndexBufferHandle *m_ibh) {
+    static void create_cubes_index_buffer(bgfx::IndexBufferHandle &m_ibh) {
+        // Create static index buffer for triangle strip rendering
+        m_ibh = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeTriStrip, sizeof(s_cubeTriStrip)));
+    }
+
+    static void init_cube(bgfx::VertexBufferHandle &m_vbh, bgfx::IndexBufferHandle &m_ibh) {
+        PosColorVertex::init();
         create_cubes_vertex_buffer(m_vbh);
         create_cubes_index_buffer(m_ibh);
     }

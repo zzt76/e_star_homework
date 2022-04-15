@@ -71,6 +71,8 @@ struct Camera {
         entry::MouseState mouseState;
         update(0.0f, mouseState, true);
 
+        entry::Key keyState;
+
         cmdAdd("move", cmdMove);
         inputAddBindings("camBindings", s_camBindings);
     }
@@ -100,7 +102,7 @@ struct Camera {
         m_verticalAngle = 0.0f;
         m_mouseSpeed = 0.0020f;
         m_gamepadSpeed = 0.04f;
-        m_moveSpeed = 30.0f;
+        m_moveSpeed = 10.0f;
         m_keys = 0;
         m_mouseDown = false;
         m_fov = 45;
@@ -141,8 +143,8 @@ struct Camera {
 
         const float deltaZ = float(m_mouseNow.m_mz - m_mouseLast.m_mz);
 
-        // calc field of view (FoV)
-        m_fov -= deltaZ;
+        // calc field of view (FoV), 2 is a factor
+        m_fov -= 2 * deltaZ;
         m_fov = m_fov < 1.0f ? 1.0f : m_fov;
         m_fov = m_fov > 90.0f ? 90.0f : m_fov;
 
@@ -182,8 +184,6 @@ struct Camera {
                 };
 
         const bx::Vec3 up = bx::cross(right, direction);
-
-        m_eye = bx::mad(direction, deltaZ * _deltaTime * m_moveSpeed, m_eye);
 
         if (m_keys & CAMERA_KEY_FORWARD) {
             m_eye = bx::mad(direction, _deltaTime * m_moveSpeed, m_eye);

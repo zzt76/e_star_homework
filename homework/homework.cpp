@@ -48,12 +48,16 @@ namespace RenderCore {
 
             u_time = bgfx::createUniform("u_time", bgfx::UniformType::Vec4);
 
+
+            // init a cube light
+            Cubes::init_cube(m_lightVbh, m_lightIbh);
+            m_lightProgram = loadProgram("light_vs", "light_fs");
+            u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
+
             // Create program from shaders
-            m_program = loadProgram("vs_cubes", "fs_cubes");
+            m_program = loadProgram("mesh_vs", "mesh_fs");
 
             m_timeOffset = bx::getHPCounter();
-
-            num_boxes = 10;
 
             m_mesh = meshLoad("../resource/basic_meshes/bunny.bin");
 
@@ -72,6 +76,9 @@ namespace RenderCore {
             imguiDestroy();
 
             meshUnload(m_mesh);
+
+            bgfx::destroy(m_lightVbh);
+            bgfx::destroy(m_lightIbh);
 
             bgfx::destroy(m_program);
             bgfx::destroy(u_time);
@@ -107,18 +114,20 @@ namespace RenderCore {
                 ImGui::Checkbox("Write B", &m_b);
                 ImGui::Checkbox("Write A", &m_a);
 
+                ImGui::SliderFloat3("Light Pos", m_lightPos, -10, 10);
 
                 ImGui::End();
 
                 imguiEndFrame();
 
                 // get delta time
-                auto now = bx::getHPCounter();
-                static auto last = now;
+                int64_t now = bx::getHPCounter();
+                static int64_t last = now;
+                const int64_t frameTime = now - last;
                 last = now;
-                const auto frameTime = last - now;
                 const auto freq = double(bx::getHPFrequency());
                 const auto time = (float) ((now - m_timeOffset) / double(bx::getHPFrequency()));
+                bgfx::setUniform(u_time, &time);
                 const auto deltaTime = float(frameTime / freq);
 
                 cameraUpdate(deltaTime, m_mouseState);
@@ -144,21 +153,41 @@ namespace RenderCore {
                 // if no other draw calls are submitted to view 0.
                 bgfx::touch(0);
 
-//                // Current primitive topology
-//                uint64_t state = 0
-//                                 | (m_r ? BGFX_STATE_WRITE_R : 0)
-//                                 | (m_g ? BGFX_STATE_WRITE_G : 0)
-//                                 | (m_b ? BGFX_STATE_WRITE_B : 0)
-//                                 | (m_a ? BGFX_STATE_WRITE_A : 0)
-//                                 | BGFX_STATE_WRITE_Z
-//                                 | BGFX_STATE_DEPTH_TEST_LESS
-//                                 | BGFX_STATE_CULL_CW
-//                                 | BGFX_STATE_MSAA;
+                // render light
+                { // Current primitive topology
+                    uint64_t state = 0
+                                     | (m_r ? BGFX_STATE_WRITE_R : 0)
+                                     | (m_g ? BGFX_STATE_WRITE_G : 0)
+                                     | (m_b ? BGFX_STATE_WRITE_B : 0)
+                                     | (m_a ? BGFX_STATE_WRITE_A : 0)
+                                     | BGFX_STATE_WRITE_Z
+                                     | BGFX_STATE_DEPTH_TEST_LESS
+                                     | BGFX_STATE_CULL_CW
+                                     | BGFX_STATE_MSAA
+                                     | BGFX_STATE_PT_TRISTRIP;
+                    float mtx[16];
 
-                float model_matrix[16];
-                bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
+                    bx::mtxTranslate(mtx, m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+                    bgfx::setUniform(u_lightPos, &m_lightPos);
+                    // Set model matrix for rendering.
+                    bgfx::setTransform(mtx);
+                    // Set vertex and index buffer.
+                    bgfx::setVertexBuffer(0, m_lightVbh);
+                    bgfx::setIndexBuffer(m_lightIbh);
+                    // Set render states.
+                    bgfx::setState(state);
+                    // Submit primitive for rendering to view 0.
+                    bgfx::submit(0, m_lightProgram);
+                }
 
-                meshSubmit(m_mesh, 0, m_program, model_matrix);
+                // render mesh
+                {
+                    float model_matrix[16];
+                    // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
+                    bx::mtxRotateXY(model_matrix, 0.0f, 0.0f);
+                    // draw mesh
+                    meshSubmit(m_mesh, 0, m_program, model_matrix);
+                }
 
                 // Advance to next frame. Rendering thread will be kicked to
                 // process submitted rendering primitives.
@@ -177,8 +206,12 @@ namespace RenderCore {
         uint32_t m_debug;
         uint32_t m_reset;
 
-        bgfx::VertexBufferHandle m_vbh;
-        bgfx::IndexBufferHandle m_ibh[BX_COUNTOF(Cubes::s_ptState)];
+        bgfx::VertexBufferHandle m_lightVbh;
+        bgfx::IndexBufferHandle m_lightIbh;
+        bgfx::ProgramHandle m_lightProgram;
+        float m_lightPos[4]{10.0, 10.0, 10.0, 0.0};
+        bgfx::UniformHandle u_lightPos;
+
         Mesh *m_mesh;
         bgfx::ProgramHandle m_program;
         bgfx::UniformHandle u_time;
