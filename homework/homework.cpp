@@ -8,6 +8,7 @@
 #include "bgfx_utils.h"
 #include "camera.h"
 #include "imgui/imgui.h"
+#include "FileBrowser/ImGuiFileBrowser.h"
 #include "meshproducer.h"
 
 namespace RenderCore {
@@ -116,7 +117,39 @@ namespace RenderCore {
 
                 ImGui::SliderFloat3("Light Pos", m_lightPos, -10, 10);
 
+                bool open = false, save = false;
+                if (ImGui::BeginMenu("Menu")) {
+                    if (ImGui::MenuItem("Open", NULL))
+                        open = true;
+//                    if (ImGui::MenuItem("Save", NULL))
+//                        save = true;
+                    ImGui::EndMenu();
+                }
+                //Remember the name to ImGui::OpenPopup() and showFileDialog() must be same...
+                if (open)
+                    ImGui::OpenPopup("Open File");
+//                if (save)
+//                    ImGui::OpenPopup("Save File");
+                /* Optional third parameter. Support opening only compressed rar/zip files.
+                 * Opening any other file will show error, return false and won't close the dialog.
+                 */
+                if (file_dialog.showFileDialog("Open File", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
+                                               ImVec2(700, 310), ".bin")) {
+                    std::cout << file_dialog.selected_fn
+                              << std::endl;      // The name of the selected file or directory in case of Select Directory dialog mode
+                    std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
+                    m_mesh = meshLoad(file_dialog.selected_path.c_str());
+                }
+//                if (file_dialog.showFileDialog("Save File", imgui_addons::ImGuiFileBrowser::DialogMode::SAVE,
+//                                               ImVec2(700, 310), ".png,.jpg,.bmp")) {
+//                    std::cout << file_dialog.selected_fn
+//                              << std::endl;      // The name of the selected file or directory in case of Select Directory dialog mode
+//                    std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
+//                    std::cout << file_dialog.ext << std::endl;              // Access ext separately (For SAVE mode)
+//                    //Do writing of files based on extension here
+//                }
                 ImGui::End();
+
 
                 imguiEndFrame();
 
@@ -166,6 +199,8 @@ namespace RenderCore {
                                      | BGFX_STATE_MSAA
                                      | BGFX_STATE_PT_TRISTRIP;
                     float mtx[16];
+                    m_lightPos[0] = 10.0f * cos(time);
+                    m_lightPos[2] = 10.0f * sin(time);
 
                     bx::mtxTranslate(mtx, m_lightPos[0], m_lightPos[1], m_lightPos[2]);
                     bgfx::setUniform(u_lightPos, &m_lightPos);
@@ -184,7 +219,7 @@ namespace RenderCore {
                 {
                     float model_matrix[16];
                     // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
-                    bx::mtxRotateXY(model_matrix, 0.0f, 0.0f);
+                    bx::mtxTranslate(model_matrix, 0.0, 0.0, 0.0);
                     // draw mesh
                     meshSubmit(m_mesh, 0, m_program, model_matrix);
                 }
@@ -224,6 +259,8 @@ namespace RenderCore {
         bool m_a;
 
         int32_t num_boxes;
+
+        imgui_addons::ImGuiFileBrowser file_dialog;
     };
 
 } // namespace
