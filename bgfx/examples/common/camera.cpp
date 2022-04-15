@@ -103,6 +103,7 @@ struct Camera {
         m_moveSpeed = 30.0f;
         m_keys = 0;
         m_mouseDown = false;
+        m_fov = 45;
     }
 
     void setKeyState(uint8_t _key, bool _down) {
@@ -126,6 +127,7 @@ struct Camera {
             m_mouseLast.m_my = _mouseState.m_my;
         }
 
+        // set all non-zero to true, zero to false
         // m_mouseDown = !!_mouseState.m_buttons[entry::MouseButton::Right];
         m_mouseDown = !!_mouseState.m_buttons[entry::MouseButton::Left];
 
@@ -138,6 +140,11 @@ struct Camera {
         m_mouseNow.m_mz = _mouseState.m_mz;
 
         const float deltaZ = float(m_mouseNow.m_mz - m_mouseLast.m_mz);
+
+        // calc field of view (FoV)
+        m_fov -= deltaZ;
+        m_fov = m_fov < 1.0f ? 1.0f : m_fov;
+        m_fov = m_fov > 90.0f ? 90.0f : m_fov;
 
         if (m_mouseDown) {
             const int32_t deltaX = m_mouseNow.m_mx - m_mouseLast.m_mx;
@@ -237,6 +244,8 @@ struct Camera {
     float m_horizontalAngle;
     float m_verticalAngle;
 
+    float m_fov;
+
     float m_mouseSpeed;
     float m_gamepadSpeed;
     float m_moveSpeed;
@@ -274,6 +283,10 @@ void cameraSetKeyState(uint8_t _key, bool _down) {
 
 void cameraGetViewMtx(float *_viewMtx) {
     s_camera->getViewMtx(_viewMtx);
+}
+
+float cameraGetFoV() {
+    return s_camera->m_fov;
 }
 
 bx::Vec3 cameraGetPosition() {

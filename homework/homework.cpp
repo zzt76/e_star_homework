@@ -131,7 +131,8 @@ namespace RenderCore {
                 cameraGetViewMtx(view_matrix);
 
                 float proj_matrix[16];
-                bx::mtxProj(proj_matrix, 60.0f, float(m_width) / float(m_height),
+
+                bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
                             0.1f, 100.0f, bgfx::getCaps()->homogeneousDepth);
                 bgfx::setViewTransform(0, view_matrix, proj_matrix);
 

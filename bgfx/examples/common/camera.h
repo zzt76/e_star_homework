@@ -22,7 +22,7 @@ void cameraCreate();
 void cameraDestroy();
 
 ///
-void cameraSetPosition(const bx::Vec3& _pos);
+void cameraSetPosition(const bx::Vec3 &_pos);
 
 ///
 void cameraSetHorizontalAngle(float _horizontalAngle);
@@ -34,7 +34,10 @@ void cameraSetVerticalAngle(float _verticalAngle);
 void cameraSetKeyState(uint8_t _key, bool _down);
 
 ///
-void cameraGetViewMtx(float* _viewMtx);
+void cameraGetViewMtx(float *_viewMtx);
+
+///
+float cameraGetFoV();
 
 ///
 bx::Vec3 cameraGetPosition();
@@ -43,6 +46,6 @@ bx::Vec3 cameraGetPosition();
 bx::Vec3 cameraGetAt();
 
 ///
-void cameraUpdate(float _deltaTime, const entry::MouseState& _mouseState, bool _reset = false);
+void cameraUpdate(float _deltaTime, const entry::MouseState &_mouseState, bool _reset = false);
 
 #endif // CAMERA_H_HEADER_GUARD
