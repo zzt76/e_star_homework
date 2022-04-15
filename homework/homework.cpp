@@ -3,8 +3,10 @@
  * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
+#include <iostream>
 #include "common.h"
 #include "bgfx_utils.h"
+#include "camera.h"
 #include "imgui/imgui.h"
 #include "meshproducer.h"
 
@@ -42,14 +44,9 @@ namespace RenderCore {
             bgfx::setDebug(m_debug);
 
             // Set view 0 clear state
-            bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0
-            );
+            bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
 
-            // Create vertex stream declaration
-            Cubes::PosColorVertex::init();
-            Cubes::init(m_vbh, m_ibh);
-
-            m_mesh = meshLoad("meshes/bunny.bin");
+            u_time = bgfx::createUniform("u_time", bgfx::UniformType::Vec4);
 
             // Create program from shaders
             m_program = loadProgram("vs_cubes", "fs_cubes");
@@ -58,29 +55,39 @@ namespace RenderCore {
 
             num_boxes = 10;
 
+            m_mesh = meshLoad("../resource/basic_meshes/bunny.bin");
+
+            if (!m_mesh) {
+                std::cout << "mesh not load!" << std::endl;
+                shutdown();
+            }
+
+            cameraCreate();
+            cameraSetPosition(bx::Vec3(0.0f, 0.0f, -10.0f));
+
             imguiCreate();
         }
 
         virtual int shutdown() override {
             imguiDestroy();
 
-            for (uint32_t ii = 0; ii < BX_COUNTOF(m_ibh); ++ii) {
-                bgfx::destroy(m_ibh[ii]);
-            }
             meshUnload(m_mesh);
 
-            bgfx::destroy(m_vbh);
             bgfx::destroy(m_program);
+            bgfx::destroy(u_time);
 
             // Shutdown bgfx.
             bgfx::shutdown();
+
+            cameraDestroy();
 
             return 0;
         }
 
         bool update() override {
             if (!entry::processEvents(m_width, m_height, m_debug, m_reset, &m_mouseState)) {
-                imguiBeginFrame(m_mouseState.m_mx, m_mouseState.m_my,
+                imguiBeginFrame(m_mouseState.m_mx,
+                                m_mouseState.m_my,
                                 (m_mouseState.m_buttons[entry::MouseButton::Left] ? IMGUI_MBUT_LEFT : 0)
                                 | (m_mouseState.m_buttons[entry::MouseButton::Right] ? IMGUI_MBUT_RIGHT : 0)
                                 | (m_mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0),
@@ -100,76 +107,57 @@ namespace RenderCore {
                 ImGui::Checkbox("Write B", &m_b);
                 ImGui::Checkbox("Write A", &m_a);
 
-                ImGui::SliderInt("Numbers", &num_boxes, 1, 100);
-
-                ImGui::Text("Primitive topology:");
-                ImGui::Combo("##topology", (int *) &m_pt, Cubes::s_ptNames, BX_COUNTOF(Cubes::s_ptNames));
 
                 ImGui::End();
 
                 imguiEndFrame();
 
-                float time = (float) ((bx::getHPCounter() - m_timeOffset) / double(bx::getHPFrequency()));
+                // get delta time
+                auto now = bx::getHPCounter();
+                static auto last = now;
+                last = now;
+                const auto frameTime = last - now;
+                const auto freq = double(bx::getHPFrequency());
+                const auto time = (float) ((now - m_timeOffset) / double(bx::getHPFrequency()));
+                const auto deltaTime = float(frameTime / freq);
 
-                constexpr bx::Vec3 look_at{0.0f, 0.0f, 0.0f};
-                constexpr bx::Vec3 camera{0.0f, 0.0f, -35.0f};
+                cameraUpdate(deltaTime, m_mouseState);
 
-                {
-                    float view_matrix[16];
-                    bx::mtxLookAt(view_matrix, camera, look_at);
+//                constexpr bx::Vec3 look_at{0.0f, 0.0f, 0.0f};
+//                constexpr bx::Vec3 camera{0.0f, 0.0f, -10.0f};
 
-                    float proj_matrix[16];
-                    bx::mtxProj(proj_matrix, 60.0f, float(m_width) / float(m_height),
-                                0.1f, 100.0f, bgfx::getCaps()->homogeneousDepth);
-                    bgfx::setViewTransform(0, view_matrix, proj_matrix);
+                float view_matrix[16];
+                // bx::mtxLookAt(view_matrix, camera, look_at);
+                cameraGetViewMtx(view_matrix);
 
-                    // Set view 0 default viewport.
-                    bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
-                }
+                float proj_matrix[16];
+                bx::mtxProj(proj_matrix, 60.0f, float(m_width) / float(m_height),
+                            0.1f, 100.0f, bgfx::getCaps()->homogeneousDepth);
+                bgfx::setViewTransform(0, view_matrix, proj_matrix);
+
+                // Set view 0 default viewport.
+                bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
+
 
                 // This dummy draw call is here to make sure that view 0 is cleared
                 // if no other draw calls are submitted to view 0.
                 bgfx::touch(0);
 
-                // Current primitive topology
-                bgfx::IndexBufferHandle current_ibh = m_ibh[m_pt];
-                uint64_t state = 0
-                                 | (m_r ? BGFX_STATE_WRITE_R : 0)
-                                 | (m_g ? BGFX_STATE_WRITE_G : 0)
-                                 | (m_b ? BGFX_STATE_WRITE_B : 0)
-                                 | (m_a ? BGFX_STATE_WRITE_A : 0)
-                                 | BGFX_STATE_WRITE_Z
-                                 | BGFX_STATE_DEPTH_TEST_LESS
-                                 | BGFX_STATE_CULL_CW
-                                 | BGFX_STATE_MSAA
-                                 | Cubes::s_ptState[m_pt];
+//                // Current primitive topology
+//                uint64_t state = 0
+//                                 | (m_r ? BGFX_STATE_WRITE_R : 0)
+//                                 | (m_g ? BGFX_STATE_WRITE_G : 0)
+//                                 | (m_b ? BGFX_STATE_WRITE_B : 0)
+//                                 | (m_a ? BGFX_STATE_WRITE_A : 0)
+//                                 | BGFX_STATE_WRITE_Z
+//                                 | BGFX_STATE_DEPTH_TEST_LESS
+//                                 | BGFX_STATE_CULL_CW
+//                                 | BGFX_STATE_MSAA;
 
-                // Submit 11x11 cubes
-                for (int yy = 0; yy < num_boxes; ++yy) {
-                    for (int xx = 0; xx < num_boxes; ++xx) {
-                        float model_matrix[16];
-                        // Rotate the boxes according to time
-                        bx::mtxRotateXY(model_matrix, time + xx * 0.21f, time + yy * 0.37f);
-                        // Translate the boxes
-                        model_matrix[12] = -15.0f + float(xx) * 3.0f;
-                        model_matrix[13] = -15.0f + float(yy) * 3.0f;
-                        model_matrix[14] = 0.0f;
+                float model_matrix[16];
+                bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
 
-                        // Set the model matrix
-                        bgfx::setTransform(model_matrix);
-
-                        // Set vertex and index buffer
-                        bgfx::setVertexBuffer(0, m_vbh);
-                        bgfx::setIndexBuffer(current_ibh);
-
-                        // Set render state
-                        bgfx::setState(state);
-
-                        // Submit primitive for rendering to view 0
-                        // Program created from shaders
-                        bgfx::submit(0, m_program);
-                    }
-                }
+                meshSubmit(m_mesh, 0, m_program, model_matrix);
 
                 // Advance to next frame. Rendering thread will be kicked to
                 // process submitted rendering primitives.
@@ -192,6 +180,7 @@ namespace RenderCore {
         bgfx::IndexBufferHandle m_ibh[BX_COUNTOF(Cubes::s_ptState)];
         Mesh *m_mesh;
         bgfx::ProgramHandle m_program;
+        bgfx::UniformHandle u_time;
         int64_t m_timeOffset;
         int32_t m_pt;
 
