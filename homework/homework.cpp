@@ -31,6 +31,7 @@ namespace RenderCore {
             m_height = _height;
             m_debug = BGFX_DEBUG_TEXT;
             m_reset = BGFX_RESET_VSYNC;
+            m_timeOffset = bx::getHPCounter();
 
             bgfx::Init init;
             // init.type = args.m_type;
@@ -49,26 +50,25 @@ namespace RenderCore {
 
             u_time = bgfx::createUniform("u_time", bgfx::UniformType::Vec4);
 
-
             // init a cube light
             Cubes::init_cube(m_lightVbh, m_lightIbh);
             m_lightProgram = loadProgram("light_vs", "light_fs");
             u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
 
-            // Create program from shaders
-            m_program = loadProgram("mesh_vs", "mesh_fs");
-
-            m_timeOffset = bx::getHPCounter();
-
-            m_mesh = meshLoad("../resource/basic_meshes/bunny.bin");
-
+            // create mesh program from shaders
+            m_mesh = meshLoad(R"(../resource/pbr_stone/pbr_stone_mes.bin)");
             if (!m_mesh) {
                 std::cout << "mesh not load!" << std::endl;
                 shutdown();
             }
+            m_meshProgram = loadProgram("mesh_vs", "mesh_fs");
+            // load texture and create texture sampler uniform
+            m_texDiffuse = loadTexture(R"(../resource/pbr_stone/pbr_stone_base_color.dds)");
+            s_texDiffuse = bgfx::createUniform("s_texDiffuse", bgfx::UniformType::Sampler);
 
             cameraCreate();
             cameraSetPosition(bx::Vec3(0.0f, 0.0f, -10.0f));
+            u_viewPos = bgfx::createUniform("u_viewPos", bgfx::UniformType::Vec4);
 
             imguiCreate();
         }
@@ -76,12 +76,15 @@ namespace RenderCore {
         virtual int shutdown() override {
             imguiDestroy();
 
-            meshUnload(m_mesh);
-
             bgfx::destroy(m_lightVbh);
             bgfx::destroy(m_lightIbh);
+            bgfx::destroy(m_lightProgram);
 
-            bgfx::destroy(m_program);
+            meshUnload(m_mesh);
+            bgfx::destroy(m_meshProgram);
+            bgfx::destroy(m_texDiffuse);
+            bgfx::destroy(s_texDiffuse);
+//            bgfx::destroy(m_texBump);
             bgfx::destroy(u_time);
 
             // Shutdown bgfx.
@@ -110,44 +113,24 @@ namespace RenderCore {
                                          ImGuiCond_FirstUseEver);
                 ImGui::Begin("Settings", NULL, 0);
 
-                ImGui::Checkbox("Write R", &m_r);
-                ImGui::Checkbox("Write G", &m_g);
-                ImGui::Checkbox("Write B", &m_b);
-                ImGui::Checkbox("Write A", &m_a);
+//                ImGui::Checkbox("Write R", &m_r);
+//                ImGui::Checkbox("Write G", &m_g);
+//                ImGui::Checkbox("Write B", &m_b);
+//                ImGui::Checkbox("Write A", &m_a);
 
                 ImGui::SliderFloat3("Light Pos", m_lightPos, -10, 10);
 
-                bool open = false, save = false;
-                if (ImGui::BeginMenu("Menu")) {
-                    if (ImGui::MenuItem("Open", NULL))
-                        open = true;
-//                    if (ImGui::MenuItem("Save", NULL))
-//                        save = true;
-                    ImGui::EndMenu();
-                }
-                //Remember the name to ImGui::OpenPopup() and showFileDialog() must be same...
-                if (open)
-                    ImGui::OpenPopup("Open File");
-//                if (save)
-//                    ImGui::OpenPopup("Save File");
-                /* Optional third parameter. Support opening only compressed rar/zip files.
-                 * Opening any other file will show error, return false and won't close the dialog.
-                 */
-                if (file_dialog.showFileDialog("Open File", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
+                /* ImGui File Dialog from https://github.com/gallickgunner/ImGui-Addons
+                 * Under MIT license
+                 * */
+                if (ImGui::Button("Open Mesh"))
+                    ImGui::OpenPopup("Open Mesh");
+                if (file_dialog.showFileDialog("Open Mesh", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
                                                ImVec2(700, 310), ".bin")) {
-                    std::cout << file_dialog.selected_fn
-                              << std::endl;      // The name of the selected file or directory in case of Select Directory dialog mode
                     std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
                     m_mesh = meshLoad(file_dialog.selected_path.c_str());
                 }
-//                if (file_dialog.showFileDialog("Save File", imgui_addons::ImGuiFileBrowser::DialogMode::SAVE,
-//                                               ImVec2(700, 310), ".png,.jpg,.bmp")) {
-//                    std::cout << file_dialog.selected_fn
-//                              << std::endl;      // The name of the selected file or directory in case of Select Directory dialog mode
-//                    std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
-//                    std::cout << file_dialog.ext << std::endl;              // Access ext separately (For SAVE mode)
-//                    //Do writing of files based on extension here
-//                }
+
                 ImGui::End();
 
 
@@ -181,10 +164,19 @@ namespace RenderCore {
                 // Set view 0 default viewport.
                 bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
 
+                auto cam_pos = cameraGetPosition();
+                m_viewPos[0] = cam_pos.x;
+                m_viewPos[1] = cam_pos.y;
+                m_viewPos[2] = cam_pos.z;
+                bgfx::setUniform(u_viewPos, m_viewPos);
 
                 // This dummy draw call is here to make sure that view 0 is cleared
                 // if no other draw calls are submitted to view 0.
                 bgfx::touch(0);
+
+                {
+
+                }
 
                 // render light
                 { // Current primitive topology
@@ -199,8 +191,8 @@ namespace RenderCore {
                                      | BGFX_STATE_MSAA
                                      | BGFX_STATE_PT_TRISTRIP;
                     float mtx[16];
-                    m_lightPos[0] = 10.0f * cos(time);
-                    m_lightPos[2] = 10.0f * sin(time);
+//                    m_lightPos[0] = 10.0f * cos(time);
+//                    m_lightPos[2] = 10.0f * sin(time);
 
                     bx::mtxTranslate(mtx, m_lightPos[0], m_lightPos[1], m_lightPos[2]);
                     bgfx::setUniform(u_lightPos, &m_lightPos);
@@ -220,8 +212,10 @@ namespace RenderCore {
                     float model_matrix[16];
                     // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
                     bx::mtxTranslate(model_matrix, 0.0, 0.0, 0.0);
+                    // set texture
+                    bgfx::setTexture(0, s_texDiffuse, m_texDiffuse);
                     // draw mesh
-                    meshSubmit(m_mesh, 0, m_program, model_matrix);
+                    meshSubmit(m_mesh, 0, m_meshProgram, model_matrix);
                 }
 
                 // Advance to next frame. Rendering thread will be kicked to
@@ -241,14 +235,21 @@ namespace RenderCore {
         uint32_t m_debug;
         uint32_t m_reset;
 
+        bgfx::UniformHandle u_viewPos;
+        float m_viewPos[4]{0.0, 0.0, -10.0, 1.0};
+
         bgfx::VertexBufferHandle m_lightVbh;
         bgfx::IndexBufferHandle m_lightIbh;
         bgfx::ProgramHandle m_lightProgram;
-        float m_lightPos[4]{10.0, 10.0, 10.0, 0.0};
+        float m_lightPos[4]{-5.0, 10.0, -10.0, 1.0};
         bgfx::UniformHandle u_lightPos;
 
         Mesh *m_mesh;
-        bgfx::ProgramHandle m_program;
+        bgfx::ProgramHandle m_meshProgram;
+        bgfx::TextureHandle m_texDiffuse;
+        bgfx::UniformHandle s_texDiffuse;
+        bgfx::TextureHandle m_texBump;
+
         bgfx::UniformHandle u_time;
         int64_t m_timeOffset;
         int32_t m_pt;

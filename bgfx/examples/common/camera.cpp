@@ -130,8 +130,8 @@ struct Camera {
         }
 
         // set all non-zero to true, zero to false
-        // m_mouseDown = !!_mouseState.m_buttons[entry::MouseButton::Right];
-        m_mouseDown = !!_mouseState.m_buttons[entry::MouseButton::Left];
+        m_mouseDown = !!_mouseState.m_buttons[entry::MouseButton::Right];
+//        m_mouseDown = !!_mouseState.m_buttons[entry::MouseButton::Left];
 
         if (m_mouseDown) {
             m_mouseNow.m_mx = _mouseState.m_mx;
