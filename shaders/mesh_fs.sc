@@ -13,6 +13,23 @@ SAMPLER2D(s_texDiffuse, 0);
 SAMPLER2D(s_texNormal, 1);
 SAMPLER2D(s_texAORM, 2);
 
+vec3 getNormalFromMap()
+{
+    vec3 tangentNormal = texture2D(s_texNormal, v_texcoord0).xyz * 2.0 - 1.0;
+
+    vec3 Q2  = dFdy(v_pos);
+    vec3 Q1  = dFdx(v_pos);
+    vec2 st1 = dFdx(v_texcoord0);
+    vec2 st2 = dFdy(v_texcoord0);
+
+    vec3 N   = normalize(v_normal);
+    vec3 T  = normalize(Q1*st2.t - Q2*st1.t);
+    vec3 B  = -normalize(cross(N, T));
+    mat3 TBN = mat3(T, B, N);
+
+    return normalize(TBN * tangentNormal);
+}
+
 vec3 fresnelSchlick(float HoV, vec3 f0)
 {
     return f0 + (1.0 - f0) * pow(1.0 - HoV, 5.0);
@@ -49,7 +66,7 @@ void main()
 {
 	// load textures
 	vec3 texDiffuse = texture2D(s_texDiffuse, v_texcoord0).rgb;
-	vec3 texNormal = texture2D(s_texNormal, v_texcoord0).rgb;
+	// vec3 texNormal = texture2D(s_texNormal, v_texcoord0).rgb;
 	vec3 texAORM = texture2D(s_texAORM, v_texcoord0).rgb;
 	float texAO = texAORM.r;
 	float texRoughness = texAORM.g;
@@ -62,7 +79,7 @@ void main()
 
 	vec3 lightDir = normalize(lightPos - v_pos);
 	// vec3 normal = normalize(v_normal);
-	vec3 normal = texNormal;
+	vec3 normal = getNormalFromMap();
 	vec3 viewDir = normalize(viewPos - v_pos);
 	vec3 halfVector = normalize(lightDir + viewDir);
 
@@ -100,13 +117,14 @@ void main()
     vec3 Fd = 1.0 - Fs;
     Fd *= 1.0 - texMetallic;
 
-    Lo += (Fd * texDiffuse / PI + Fs) * Li;
+    Lo += (Fd * texDiffuse + Fs) * Li;
 
     // add ambient
     vec3 ambient = vec3(0.03) * texDiffuse * texAO;
 
 	// final color
 	gl_FragColor.xyz = Lo + ambient;
+	gl_FragColor.xyz = normal;
 	// gl_FragColor.xyz = vec3(texMetallic, 0.0, 0.0);
     gl_FragColor.w = 1.0;
 }
