@@ -65,6 +65,10 @@ namespace RenderCore {
             // load texture and create texture sampler uniform
             m_texDiffuse = loadTexture(R"(../resource/pbr_stone/pbr_stone_base_color.dds)");
             s_texDiffuse = bgfx::createUniform("s_texDiffuse", bgfx::UniformType::Sampler);
+            m_texNormal = loadTexture(R"(../resource/pbr_stone/pbr_stone_normal.dds)");
+            s_texNormal = bgfx::createUniform("s_texNormal", bgfx::UniformType::Sampler);
+            m_texAORM = loadTexture(R"(../resource/pbr_stone/pbr_stone_aorm.dds)");
+            s_texAORM = bgfx::createUniform("s_texAORM", bgfx::UniformType::Sampler);
 
             cameraCreate();
             cameraSetPosition(bx::Vec3(0.0f, 0.0f, -10.0f));
@@ -84,7 +88,10 @@ namespace RenderCore {
             bgfx::destroy(m_meshProgram);
             bgfx::destroy(m_texDiffuse);
             bgfx::destroy(s_texDiffuse);
-//            bgfx::destroy(m_texBump);
+            bgfx::destroy(m_texNormal);
+            bgfx::destroy(s_texNormal);
+            bgfx::destroy(m_texAORM);
+            bgfx::destroy(s_texAORM);
             bgfx::destroy(u_time);
 
             // Shutdown bgfx.
@@ -214,6 +221,8 @@ namespace RenderCore {
                     bx::mtxTranslate(model_matrix, 0.0, 0.0, 0.0);
                     // set texture
                     bgfx::setTexture(0, s_texDiffuse, m_texDiffuse);
+                    bgfx::setTexture(1, s_texNormal, m_texNormal);
+                    bgfx::setTexture(2, s_texAORM, m_texAORM);
                     // draw mesh
                     meshSubmit(m_mesh, 0, m_meshProgram, model_matrix);
                 }
@@ -248,7 +257,10 @@ namespace RenderCore {
         bgfx::ProgramHandle m_meshProgram;
         bgfx::TextureHandle m_texDiffuse;
         bgfx::UniformHandle s_texDiffuse;
-        bgfx::TextureHandle m_texBump;
+        bgfx::TextureHandle m_texNormal;
+        bgfx::UniformHandle s_texNormal;
+        bgfx::TextureHandle m_texAORM;
+        bgfx::UniformHandle s_texAORM;
 
         bgfx::UniformHandle u_time;
         int64_t m_timeOffset;
