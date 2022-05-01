@@ -3,7 +3,7 @@ $input v_pos, v_view, v_normal, v_texcoord0
 #include "../bgfx/examples/common/common.sh"
 
 #define PI 3.14159265359
-#define EPS 0.00001
+#define EPS 0.000001
 
 uniform vec4 u_time;
 uniform vec4 u_lightPos;
@@ -17,8 +17,8 @@ vec3 getNormalFromMap()
 {
     vec3 tangentNormal = texture2D(s_texNormal, v_texcoord0).xyz * 2.0 - 1.0;
 
-    vec3 Q2  = dFdy(v_pos);
     vec3 Q1  = dFdx(v_pos);
+    vec3 Q2  = dFdy(v_pos);
     vec2 st1 = dFdx(v_texcoord0);
     vec2 st2 = dFdy(v_texcoord0);
 
@@ -49,7 +49,7 @@ float normalDistributionGGX(float NoH, float roughness)
 float occlusionSchlickGGX(float NoV, float roughness)
 {
     float r = roughness + 1.0;
-    float k = r * r / 8.0;
+    float k = (r * r) / 8.0;
 
     return NoV / ( NoV * (1.0 - k) + k);
 }
@@ -74,7 +74,7 @@ void main()
 	float texMetallic = texAORM.b;
 	// texMetallic = 1.0;
 
-    vec3 viewPos = u_viewPos.xyz;
+    vec3 viewPos = v_view.xyz;
     vec3 lightPos = u_lightPos.xyz;
 
 	vec3 lightDir = normalize(lightPos - v_pos);
@@ -84,9 +84,9 @@ void main()
 	vec3 halfVector = normalize(lightDir + viewDir);
 
 	// calculate related cosine
-	float NoV = max(dot(viewDir, normal), 0.0);
-	float NoL = max(dot(lightDir, normal), 0.0);
-	float NoH = max(dot(halfVector, normal), 0.0);
+	float NoV = max(dot(normal, viewDir), 0.0);
+	float NoL = max(dot(normal, lightDir), 0.0);
+	float NoH = max(dot(normal, halfVector), 0.0);
 	float HoV = max(dot(halfVector, viewDir), 0.0);
 
 	// Lo
@@ -94,10 +94,10 @@ void main()
 
 	// calculate Li
 	vec3 lightColor = vec3(1.0);
-	// float distance = length(lightPos - v_pos);
-	// float attenuation = 1.0 / (distance * distance);
-	// vec3 Li = lightColor * attenuation * NoL;
-	vec3 Li = lightColor;
+	float distance = length(lightPos - v_pos);
+	float attenuation = 1.0 / (distance * distance);
+	vec3 Li = lightColor * attenuation;
+	// Li = lightColor;
 
 	// Fresnel
 	vec3 f0 = vec3(0.04);
@@ -111,20 +111,27 @@ void main()
     float G = occlusionMicrofacet(NoV, NoL, texRoughness);
 
     // calculate specualr reflection energy
-    vec3 Fs = F * NDF * G / (4.0 * NoV * NoL + EPS);
+    vec3 Fs = (F * NDF * G) / (4.0 * NoV * NoL + EPS);
 
     // assume there is no refraction, then Fs + Fd = 1.0
-    vec3 Fd = 1.0 - Fs;
+    vec3 Fd = vec3(1.0) - Fs;
     Fd *= 1.0 - texMetallic;
 
-    Lo += (Fd * texDiffuse + Fs) * Li;
+    Lo = (Fd * texDiffuse + Fs) * Li;
 
     // add ambient
     vec3 ambient = vec3(0.03) * texDiffuse * texAO;
 
-	// final color
-	gl_FragColor.xyz = Lo + ambient;
-	gl_FragColor.xyz = normal;
+	// reflection color, including diffuse and specular
+	vec3 Fr = (Fd * texDiffuse / PI + Fs) * Li * NoL;
+	vec3 color = Fr + ambient;
+
+    // gamma correction
+    color = color / (color + vec3(1.0));
+    color = pow(color, vec3(1.0/2.2));
+
+	gl_FragColor.xyz = color;
+	// gl_FragColor.xyz = normal;
 	// gl_FragColor.xyz = vec3(texMetallic, 0.0, 0.0);
     gl_FragColor.w = 1.0;
 }
