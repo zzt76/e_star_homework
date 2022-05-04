@@ -171,17 +171,6 @@ namespace RenderCore {
                 const auto deltaTime = float(frameTime / freq);
                 cameraUpdate(deltaTime, m_mouseState);
 
-
-                const bgfx::Caps *caps = bgfx::getCaps();
-                float view_matrix[16];
-                cameraGetViewMtx(view_matrix);
-                float proj_matrix[16];
-                bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
-                            0.1f, 100.0f, caps->homogeneousDepth);
-                // view transform 1 for mesh
-                bgfx::setViewTransform(1, view_matrix, proj_matrix);
-
-
                 // set view 0 rectangle
                 bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 // set view 1 rectangle
@@ -193,29 +182,17 @@ namespace RenderCore {
                 m_viewPos[2] = cam_pos.z;
                 bgfx::setUniform(u_viewPos, m_viewPos);
 
+                // view and proj matrix for view 0 (mesh and light)
+                const bgfx::Caps *caps = bgfx::getCaps();
+                float view_matrix[16];
+                cameraGetViewMtx(view_matrix);
+                float proj_matrix[16];
+                bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
+                            0.1f, 100.0f, caps->homogeneousDepth);
+                // view transform 0 for mesh
+                bgfx::setViewTransform(0, view_matrix, proj_matrix);
 
-                // render sky box
-                {
-                    bgfx::setTexture(0, s_texCube, m_texCube);
-                    bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
-                    uint64_t state = 0
-                                     | BGFX_STATE_WRITE_RGB
-                                     | BGFX_STATE_DEPTH_TEST_LESS;
-                    float view[16];
-                    cameraGetViewMtx(view);
-                    view[3] = 0;
-                    view[7] = 0;
-                    view[11] = 0;
-                    view[12] = 0;
-                    view[13] = 0;
-                    view[14] = 0;
-                    bgfx::setViewTransform(0, view, proj_matrix);
-                    float mtx[16];
-                    bx::mtxTranslate(mtx, 0.0, 0.0, 0.0);
-                    meshSubmit(m_skyBoxMesh, 0, m_skyBoxProgram, mtx, state);
-                }
-
-//                // render light
+                // render light
 //                { // Current primitive topology
 //                    uint64_t state = 0
 //                                     | (m_r ? BGFX_STATE_WRITE_R : 0)
@@ -241,7 +218,7 @@ namespace RenderCore {
 //                    // Set render states.
 //                    bgfx::setState(state);
 //                    // Submit primitive for rendering to view 1.
-//                    bgfx::submit(1, m_lightProgram);
+//                    bgfx::submit(0, m_lightProgram);
 //                }
 
                 // render mesh
@@ -259,10 +236,29 @@ namespace RenderCore {
                     bgfx::setTexture(1, s_texNormal, m_texNormal);
                     bgfx::setTexture(2, s_texAORM, m_texAORM);
                     // draw mesh
-                    meshSubmit(m_mesh, 1, m_meshProgram, model_matrix, state);
+                    meshSubmit(m_mesh, 0, m_meshProgram, model_matrix, state);
                 }
 
-
+                // render sky box
+                {
+                    bgfx::setTexture(0, s_texCube, m_texCube);
+                    bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
+                    uint64_t state = 0
+                                     | BGFX_STATE_WRITE_RGB
+                                     | BGFX_STATE_DEPTH_TEST_LEQUAL;
+                    float view_sky[16];
+                    cameraGetViewMtx(view_sky);
+                    view_sky[3] = 0;
+                    view_sky[7] = 0;
+                    view_sky[11] = 0;
+                    view_sky[12] = 0;
+                    view_sky[13] = 0;
+                    view_sky[14] = 0;
+                    bgfx::setViewTransform(1, view_sky, proj_matrix);
+                    float mtx[16];
+                    bx::mtxTranslate(mtx, 0.0, 0.0, 0.0);
+                    meshSubmit(m_skyBoxMesh, 1, m_skyBoxProgram, mtx, state);
+                }
 
                 // Advance to next frame. Rendering thread will be kicked to
                 // process submitted rendering primitives.
