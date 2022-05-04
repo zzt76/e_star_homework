@@ -15,101 +15,6 @@ namespace RenderCore {
 
     static float s_texelHalf = 0.0f;
 
-    struct PosColorTexCoord0Vertex {
-        float m_x;
-        float m_y;
-        float m_z;
-        uint32_t m_rgba;
-        float m_u;
-        float m_v;
-
-        static void init() {
-            ms_layout
-                    .begin()
-                    .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-                    .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
-                    .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-                    .end();
-        }
-
-        static bgfx::VertexLayout ms_layout;
-    };
-
-    bgfx::VertexLayout PosColorTexCoord0Vertex::ms_layout;
-
-    void screenSpaceQuad(float _textureWidth, float _textureHeight, bool _originBottomLeft = false, float _width = 1.0f,
-                         float _height = 1.0f) {
-        if (3 == bgfx::getAvailTransientVertexBuffer(3, PosColorTexCoord0Vertex::ms_layout)) {
-            bgfx::TransientVertexBuffer vb;
-            bgfx::allocTransientVertexBuffer(&vb, 3, PosColorTexCoord0Vertex::ms_layout);
-            PosColorTexCoord0Vertex *vertex = (PosColorTexCoord0Vertex *) vb.data;
-
-            const float zz = 0.0f;
-
-            const float minx = -_width;
-            const float maxx = _width;
-            const float miny = 0.0f;
-            const float maxy = _height * 2.0f;
-
-            const float texelHalfW = s_texelHalf / _textureWidth;
-            const float texelHalfH = s_texelHalf / _textureHeight;
-            const float minu = -1.0f + texelHalfW;
-            const float maxu = 1.0f + texelHalfW;
-
-            float minv = texelHalfH;
-            float maxv = 2.0f + texelHalfH;
-
-            if (_originBottomLeft) {
-                std::swap(minv, maxv);
-                minv -= 1.0f;
-                maxv -= 1.0f;
-            }
-
-            vertex[0].m_x = minx;
-            vertex[0].m_y = miny;
-            vertex[0].m_z = zz;
-            vertex[0].m_rgba = 0xffffffff;
-            vertex[0].m_u = minu;
-            vertex[0].m_v = minv;
-
-            vertex[1].m_x = maxx;
-            vertex[1].m_y = miny;
-            vertex[1].m_z = zz;
-            vertex[1].m_rgba = 0xffffffff;
-            vertex[1].m_u = maxu;
-            vertex[1].m_v = minv;
-
-            vertex[2].m_x = maxx;
-            vertex[2].m_y = maxy;
-            vertex[2].m_z = zz;
-            vertex[2].m_rgba = 0xffffffff;
-            vertex[2].m_u = maxu;
-            vertex[2].m_v = maxv;
-
-            bgfx::setVertexBuffer(0, &vb);
-        }
-    }
-
-    struct LightProbe {
-        void load(const char *_name) {
-            char filePath[512];
-
-            bx::snprintf(filePath, BX_COUNTOF(filePath), R"(../resource/env_maps/%s_lod.dds)", _name);
-            m_tex = loadTexture(filePath, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP);
-
-            bx::snprintf(filePath, BX_COUNTOF(filePath), R"(../resource/env_maps/%s_irr.dds)", _name);
-            m_texIrr = loadTexture(filePath, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP);
-        }
-
-        void destroy() {
-            bgfx::destroy(m_tex);
-            bgfx::destroy(m_texIrr);
-        }
-
-        bgfx::TextureHandle m_tex;
-        bgfx::TextureHandle m_texIrr;
-    };
-
     class EStarHomework : public entry::AppI {
     public:
         EStarHomework(const char *_name, const char *_description, const char *_url)
@@ -147,8 +52,6 @@ namespace RenderCore {
 
             u_time = bgfx::createUniform("u_time", bgfx::UniformType::Vec4);
 
-            // vertex declarations
-            PosColorTexCoord0Vertex::init();
 
             // init a cube light
             Cubes::init_cube(m_lightVbh, m_lightIbh);
@@ -174,10 +77,9 @@ namespace RenderCore {
             cameraSetPosition(bx::Vec3(0.0f, 0.0f, -10.0f));
             u_viewPos = bgfx::createUniform("u_viewPos", bgfx::UniformType::Vec4);
 
-            m_lightProbe.load("bolonga");
-            m_skyProgram = loadProgram("sky_vs", "sky_fs");
-            s_texCube = bgfx::createUniform("s_texCube", bgfx::UniformType::Sampler);
-            s_texCubeIrr = bgfx::createUniform("s_texCubeIrr", bgfx::UniformType::Sampler);
+//            m_skyProgram = loadProgram("sky_vs", "sky_fs");
+//            s_texCube = bgfx::createUniform("s_texCube", bgfx::UniformType::Sampler);
+//            s_texCubeIrr = bgfx::createUniform("s_texCubeIrr", bgfx::UniformType::Sampler);
 
 
             imguiCreate();
@@ -200,10 +102,9 @@ namespace RenderCore {
             bgfx::destroy(s_texAORM);
             bgfx::destroy(u_time);
 
-            m_lightProbe.destroy();
-            bgfx::destroy(m_skyProgram);
-            bgfx::destroy(s_texCube);
-            bgfx::destroy(s_texCubeIrr);
+//            bgfx::destroy(m_skyProgram);
+//            bgfx::destroy(s_texCube);
+//            bgfx::destroy(s_texCubeIrr);
 
             // Shutdown bgfx.
             bgfx::shutdown();
@@ -267,19 +168,19 @@ namespace RenderCore {
 
 
                 const bgfx::Caps *caps = bgfx::getCaps();
-                // view transform 0 for sky box
+//                // view transform 0 for sky box
                 float view_matrix[16];
-                bx::mtxIdentity(view_matrix);
+//                bx::mtxIdentity(view_matrix);
                 float proj_matrix[16];
-                bx::mtxOrtho(proj_matrix, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 100.0f, 0.0, caps->homogeneousDepth);
-                bgfx::setViewTransform(0, view_matrix, proj_matrix);
+//                bx::mtxOrtho(proj_matrix, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 100.0f, 0.0, caps->homogeneousDepth);
+//                bgfx::setViewTransform(0, view_matrix, proj_matrix);
 
 
                 // view transform 1 for mesh
                 cameraGetViewMtx(view_matrix);
                 bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
                             0.1f, 100.0f, caps->homogeneousDepth);
-                bgfx::setViewTransform(1, view_matrix, proj_matrix);
+                bgfx::setViewTransform(0, view_matrix, proj_matrix);
 
 
                 // Env mtx.
@@ -293,7 +194,7 @@ namespace RenderCore {
                 // set view 0 rectangle
                 bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 // set view 0 rectangle
-                bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height));
+//                bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height));
 
                 auto cam_pos = cameraGetPosition();
                 m_viewPos[0] = cam_pos.x;
@@ -303,13 +204,12 @@ namespace RenderCore {
 
 
                 // render sky box
-                {
-                    bgfx::setTexture(0, s_texCube, m_lightProbe.m_tex);
-                    bgfx::setTexture(1, s_texCubeIrr, m_lightProbe.m_texIrr);
-                    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-                    screenSpaceQuad((float) m_width, (float) m_height, true);
-                    bgfx::submit(0, m_skyProgram);
-                }
+//                {
+//                    bgfx::setTexture(0, s_texCube, m_lightProbe.m_tex);
+//                    bgfx::setTexture(1, s_texCubeIrr, m_lightProbe.m_texIrr);
+//                    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+//                    bgfx::submit(0, m_skyProgram);
+//                }
 
                 // render light
                 { // Current primitive topology
@@ -337,7 +237,7 @@ namespace RenderCore {
                     // Set render states.
                     bgfx::setState(state);
                     // Submit primitive for rendering to view 1.
-                    bgfx::submit(1, m_lightProgram);
+                    bgfx::submit(0, m_lightProgram);
                 }
 
                 // render mesh
@@ -350,7 +250,7 @@ namespace RenderCore {
                     bgfx::setTexture(1, s_texNormal, m_texNormal);
                     bgfx::setTexture(2, s_texAORM, m_texAORM);
                     // draw mesh
-                    meshSubmit(m_mesh, 1, m_meshProgram, model_matrix);
+                    meshSubmit(m_mesh, 0, m_meshProgram, model_matrix);
                 }
 
 
@@ -390,7 +290,6 @@ namespace RenderCore {
         bgfx::TextureHandle m_texAORM;
         bgfx::UniformHandle s_texAORM;
 
-        LightProbe m_lightProbe;
         bgfx::ProgramHandle m_skyProgram;
         bgfx::UniformHandle s_texCube;
         bgfx::UniformHandle s_texCubeIrr;
