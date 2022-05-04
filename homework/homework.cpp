@@ -52,7 +52,6 @@ namespace RenderCore {
 
             u_time = bgfx::createUniform("u_time", bgfx::UniformType::Vec4);
 
-
             // init a cube light
             Cubes::init_cube(m_lightVbh, m_lightIbh);
             m_lightProgram = loadProgram("light_vs", "light_fs");
@@ -78,9 +77,13 @@ namespace RenderCore {
             u_viewPos = bgfx::createUniform("u_viewPos", bgfx::UniformType::Vec4);
 
 //            m_skyProgram = loadProgram("sky_vs", "sky_fs");
-//            s_texCube = bgfx::createUniform("s_texCube", bgfx::UniformType::Sampler);
-//            s_texCubeIrr = bgfx::createUniform("s_texCubeIrr", bgfx::UniformType::Sampler);
 
+            m_skyBoxMesh = meshLoad(R"(../resource/basic_meshes/cube.bin)");
+            m_skyBoxProgram = loadProgram("sky_vs", "sky_fs");
+            m_texCube = loadTexture(R"(../resource/env_maps/bolonga_lod.dds)");
+            s_texCube = bgfx::createUniform("s_texCube", bgfx::UniformType::Sampler);
+            m_texCubeIrr = loadTexture(R"(../resource/env_maps/bolonga_irr.dds)");
+            s_texCubeIrr = bgfx::createUniform("s_texCubeIrr", bgfx::UniformType::Sampler);
 
             imguiCreate();
         }
@@ -103,8 +106,10 @@ namespace RenderCore {
             bgfx::destroy(u_time);
 
 //            bgfx::destroy(m_skyProgram);
-//            bgfx::destroy(s_texCube);
-//            bgfx::destroy(s_texCubeIrr);
+            bgfx::destroy(m_texCube);
+            bgfx::destroy(m_texCubeIrr);
+            bgfx::destroy(s_texCube);
+            bgfx::destroy(s_texCubeIrr);
 
             // Shutdown bgfx.
             bgfx::shutdown();
@@ -168,33 +173,19 @@ namespace RenderCore {
 
 
                 const bgfx::Caps *caps = bgfx::getCaps();
-//                // view transform 0 for sky box
                 float view_matrix[16];
-//                bx::mtxIdentity(view_matrix);
-                float proj_matrix[16];
-//                bx::mtxOrtho(proj_matrix, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 100.0f, 0.0, caps->homogeneousDepth);
-//                bgfx::setViewTransform(0, view_matrix, proj_matrix);
-
-
-                // view transform 1 for mesh
                 cameraGetViewMtx(view_matrix);
+                float proj_matrix[16];
                 bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
                             0.1f, 100.0f, caps->homogeneousDepth);
-                bgfx::setViewTransform(0, view_matrix, proj_matrix);
-
-
-                // Env mtx.
-//                float mtxEnvView[16];
-//                m_camera.envViewMtx(mtxEnvView);
-//                float mtxEnvRot[16];
-//                bx::mtxRotateY(mtxEnvRot, m_settings.m_envRotCurr);
-//                bx::mtxMul(m_uniforms.m_mtx, mtxEnvView, mtxEnvRot); // Used for Skybox.
+                // view transform 1 for mesh
+                bgfx::setViewTransform(1, view_matrix, proj_matrix);
 
 
                 // set view 0 rectangle
                 bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
-                // set view 0 rectangle
-//                bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height));
+                // set view 1 rectangle
+                bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height));
 
                 auto cam_pos = cameraGetPosition();
                 m_viewPos[0] = cam_pos.x;
@@ -204,44 +195,62 @@ namespace RenderCore {
 
 
                 // render sky box
-//                {
-//                    bgfx::setTexture(0, s_texCube, m_lightProbe.m_tex);
-//                    bgfx::setTexture(1, s_texCubeIrr, m_lightProbe.m_texIrr);
-//                    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-//                    bgfx::submit(0, m_skyProgram);
-//                }
-
-                // render light
-                { // Current primitive topology
+                {
+                    bgfx::setTexture(0, s_texCube, m_texCube);
+                    bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
                     uint64_t state = 0
-                                     | (m_r ? BGFX_STATE_WRITE_R : 0)
-                                     | (m_g ? BGFX_STATE_WRITE_G : 0)
-                                     | (m_b ? BGFX_STATE_WRITE_B : 0)
-                                     | (m_a ? BGFX_STATE_WRITE_A : 0)
-                                     | BGFX_STATE_WRITE_Z
-                                     | BGFX_STATE_DEPTH_TEST_LESS
-                                     | BGFX_STATE_CULL_CW
-                                     | BGFX_STATE_MSAA
-                                     | BGFX_STATE_PT_TRISTRIP;
+                                     | BGFX_STATE_WRITE_RGB
+                                     | BGFX_STATE_DEPTH_TEST_LESS;
+                    float view[16];
+                    cameraGetViewMtx(view);
+                    view[3] = 0;
+                    view[7] = 0;
+                    view[11] = 0;
+                    view[12] = 0;
+                    view[13] = 0;
+                    view[14] = 0;
+                    bgfx::setViewTransform(0, view, proj_matrix);
                     float mtx[16];
-//                    m_lightPos[0] = 10.0f * cos(time);
-//                    m_lightPos[2] = 10.0f * sin(time);
-
-                    bx::mtxTranslate(mtx, m_lightPos[0], m_lightPos[1], m_lightPos[2]);
-                    bgfx::setUniform(u_lightPos, &m_lightPos);
-                    // Set model matrix for rendering.
-                    bgfx::setTransform(mtx);
-                    // Set vertex and index buffer.
-                    bgfx::setVertexBuffer(0, m_lightVbh);
-                    bgfx::setIndexBuffer(m_lightIbh);
-                    // Set render states.
-                    bgfx::setState(state);
-                    // Submit primitive for rendering to view 1.
-                    bgfx::submit(0, m_lightProgram);
+                    bx::mtxTranslate(mtx, 0.0, 0.0, 0.0);
+                    meshSubmit(m_skyBoxMesh, 0, m_skyBoxProgram, mtx, state);
                 }
+
+//                // render light
+//                { // Current primitive topology
+//                    uint64_t state = 0
+//                                     | (m_r ? BGFX_STATE_WRITE_R : 0)
+//                                     | (m_g ? BGFX_STATE_WRITE_G : 0)
+//                                     | (m_b ? BGFX_STATE_WRITE_B : 0)
+//                                     | (m_a ? BGFX_STATE_WRITE_A : 0)
+//                                     | BGFX_STATE_WRITE_Z
+//                                     | BGFX_STATE_DEPTH_TEST_LESS
+//                                     | BGFX_STATE_CULL_CW
+//                                     | BGFX_STATE_MSAA
+//                                     | BGFX_STATE_PT_TRISTRIP;
+//                    float mtx[16];
+////                    m_lightPos[0] = 10.0f * cos(time);
+////                    m_lightPos[2] = 10.0f * sin(time);
+//
+//                    bx::mtxTranslate(mtx, m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+//                    bgfx::setUniform(u_lightPos, &m_lightPos);
+//                    // Set model matrix for rendering.
+//                    bgfx::setTransform(mtx);
+//                    // Set vertex and index buffer.
+//                    bgfx::setVertexBuffer(0, m_lightVbh);
+//                    bgfx::setIndexBuffer(m_lightIbh);
+//                    // Set render states.
+//                    bgfx::setState(state);
+//                    // Submit primitive for rendering to view 1.
+//                    bgfx::submit(1, m_lightProgram);
+//                }
 
                 // render mesh
                 {
+                    uint64_t state = 0
+                                     | BGFX_STATE_WRITE_RGB
+                                     | BGFX_STATE_WRITE_Z
+                                     | BGFX_STATE_DEPTH_TEST_LESS
+                                     | BGFX_STATE_MSAA;
                     float model_matrix[16];
                     // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
                     bx::mtxTranslate(model_matrix, 0.0, 0.0, 0.0);
@@ -250,7 +259,7 @@ namespace RenderCore {
                     bgfx::setTexture(1, s_texNormal, m_texNormal);
                     bgfx::setTexture(2, s_texAORM, m_texAORM);
                     // draw mesh
-                    meshSubmit(m_mesh, 0, m_meshProgram, model_matrix);
+                    meshSubmit(m_mesh, 1, m_meshProgram, model_matrix, state);
                 }
 
 
@@ -290,7 +299,10 @@ namespace RenderCore {
         bgfx::TextureHandle m_texAORM;
         bgfx::UniformHandle s_texAORM;
 
-        bgfx::ProgramHandle m_skyProgram;
+        Mesh *m_skyBoxMesh;
+        bgfx::ProgramHandle m_skyBoxProgram;
+        bgfx::TextureHandle m_texCube;
+        bgfx::TextureHandle m_texCubeIrr;
         bgfx::UniformHandle s_texCube;
         bgfx::UniformHandle s_texCubeIrr;
 

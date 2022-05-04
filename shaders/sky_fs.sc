@@ -1,4 +1,4 @@
-$input v_dir
+$input v_dir, v_pos
 
 #include "../bgfx/examples/common/common.sh"
 
@@ -7,28 +7,10 @@ SAMPLERCUBE(s_texCubeIrr, 1);
 
 void main()
 {
-	vec3 dir = normalize(v_dir);
+    vec3 env_color = textureCubeLod(s_texCube, v_pos, 0).rgb;
 
-	vec4 color;
-	/*
-	if (u_bgType == 7.0)
-	{
-		color = toLinear(textureCube(s_texCubeIrr, dir));
-	}
-	else
-	{
-		float lod = u_bgType;
-		dir = fixCubeLookup(dir, lod, 256.0);
-		color = toLinear(textureCubeLod(s_texCube, dir, lod));
-	}
-	*/
+    env_color = env_color / (env_color + vec3(1.0));
+    env_color = pow(env_color, vec3(1.0/2.2));
 
-    float lod = 0.0;
-    dir = fixCubeLookup(dir, lod, 256.0);
-    color = toLinear(textureCubeLod(s_texCube, dir, lod));
-
-	// color *= exp2(u_exposure);
-	color *= exp2(4.0f);
-
-	gl_FragColor = toFilmic(color);
+    gl_FragColor = vec4(env_color, 1.0);
 }
