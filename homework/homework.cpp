@@ -13,18 +13,91 @@
 
 namespace RenderCore {
 
-    static float s_texelHalf = 0.0f;
+    struct Uniforms {
+        enum {
+            NumVec4 = 4
+        };
+
+        void init() {
+            u_params = bgfx::createUniform("u_params", bgfx::UniformType::Vec4, NumVec4);
+        }
+
+        void submit() {
+            bgfx::setUniform(u_params, m_params, NumVec4);
+        }
+
+        void destroy() {
+            bgfx::destroy(u_params);
+        }
+
+        union {
+            struct {
+                struct {
+                    float u_lightPos[4];
+                };
+                struct {
+                    float u_lightColor[4];
+                };
+                struct {
+                    float u_viewPos[4];
+                };
+                struct {
+                    float u_roughness, u_metallic, u_exposure, u_usePBRMaps;
+                };
+            };
+
+            float m_params[NumVec4 * 4];
+        };
+
+        bgfx::UniformHandle u_params;
+    };
+
+    struct Settings {
+        Settings() {
+            m_lightPos[0] = -5.0f;
+            m_lightPos[1] = 10.0f;
+            m_lightPos[2] = -10.0f;
+            m_lightPos[3] = 1.0f;
+            m_lightColor[0] = 100.0f;
+            m_lightColor[1] = 100.0f;
+            m_lightColor[2] = 100.0f;
+            m_lightColor[3] = 1.0f;
+            m_viewPos[0] = 0.0f;
+            m_viewPos[1] = 0.0f;
+            m_viewPos[2] = -10.0f;
+            m_viewPos[3] = 1.0f;
+            m_roughness = 0.5f;
+            m_metallic = 0.1f;
+            m_exposure = 2.2f;
+            m_usePBRMaps = true;
+            m_bgType = 3.0f;
+            m_reflectivity = 1.0f;
+            m_doDiffuse = false;
+            m_doSpecular = false;
+            m_doDiffuseIbl = true;
+            m_doSpecularIbl = true;
+        }
+
+        float m_lightPos[4];
+        float m_viewPos[4];
+        float m_lightColor[4];
+        float m_roughness;
+        float m_metallic;
+        float m_exposure;
+        bool m_usePBRMaps;
+        float m_bgType;
+        float m_reflectivity;
+        bool m_doDiffuse;
+        bool m_doSpecular;
+        bool m_doDiffuseIbl;
+        bool m_doSpecularIbl;
+    };
 
     class EStarHomework : public entry::AppI {
     public:
         EStarHomework(const char *_name, const char *_description, const char *_url)
                 : entry::AppI(_name, _description, _url),
-                  m_pt(0),
-                  m_r(true),
-                  m_g(true),
-                  m_b(true),
-                  m_a(true) {
-        }
+                  m_pt(0) {}
 
         void init(int32_t _argc, const char *const *_argv, uint32_t _width, uint32_t _height) override {
             Args args(_argc, _argv);
@@ -55,10 +128,11 @@ namespace RenderCore {
             // init a cube light
             Cubes::init_cube(m_lightVbh, m_lightIbh);
             m_lightProgram = loadProgram("light_vs", "light_fs");
-            u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
+            // u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
 
             // create mesh program from shaders
-            m_mesh = meshLoad(R"(../resource/pbr_stone/pbr_stone_mes.bin)");
+            m_meshName = "../resource/pbr_stone/pbr_stone_mes.bin";
+            m_mesh = meshLoad(m_meshName.c_str());
             if (!m_mesh) {
                 std::cout << "mesh not load!" << std::endl;
                 shutdown();
@@ -80,10 +154,13 @@ namespace RenderCore {
 
             m_skyBoxMesh = meshLoad(R"(../resource/basic_meshes/cube.bin)");
             m_skyBoxProgram = loadProgram("sky_vs", "sky_fs");
-            m_texCube = loadTexture(R"(../resource/env_maps/bolonga_lod.dds)");
+            m_texCube = loadTexture(R"(../resource/env_maps/kyoto_lod.dds)");
             s_texCube = bgfx::createUniform("s_texCube", bgfx::UniformType::Sampler);
-            m_texCubeIrr = loadTexture(R"(../resource/env_maps/bolonga_irr.dds)");
+            m_texCubeIrr = loadTexture(R"(../resource/env_maps/kyoto_irr.dds)");
             s_texCubeIrr = bgfx::createUniform("s_texCubeIrr", bgfx::UniformType::Sampler);
+
+            // load settings and uniforms
+            m_uniforms.init();
 
             imguiCreate();
         }
@@ -133,16 +210,12 @@ namespace RenderCore {
 
                 ImGui::SetNextWindowPos(ImVec2(m_width - m_width / 5.0f - 10.0f, 10.0f),
                                         ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(m_width / 5.0f, m_height / 3.5f),
+                ImGui::SetNextWindowSize(ImVec2(m_width / 5.0f, m_height / 2.0f),
                                          ImGuiCond_FirstUseEver);
                 ImGui::Begin("Settings", NULL, 0);
 
-//                ImGui::Checkbox("Write R", &m_r);
-//                ImGui::Checkbox("Write G", &m_g);
-//                ImGui::Checkbox("Write B", &m_b);
-//                ImGui::Checkbox("Write A", &m_a);
-
-                ImGui::SliderFloat3("Light Pos", m_lightPos, -10, 10);
+                ImGui::SliderFloat3("Light Pos", m_settings.m_lightPos, -10, 10);
+                ImGui::SliderFloat3("Light Color", m_settings.m_lightColor, 1, 500);
 
                 /* ImGui File Dialog from https://github.com/gallickgunner/ImGui-Addons
                  * Under MIT license
@@ -152,7 +225,35 @@ namespace RenderCore {
                 if (file_dialog.showFileDialog("Open Mesh", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
                                                ImVec2(700, 310), ".bin")) {
                     std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
-                    m_mesh = meshLoad(file_dialog.selected_path.c_str());
+                    m_meshName = file_dialog.selected_path;
+                    m_mesh = meshLoad(m_meshName.c_str());
+                    m_settings.m_usePBRMaps = false;
+                }
+
+                ImGui::Checkbox("Use PBR Maps", &m_settings.m_usePBRMaps);
+                if (m_settings.m_usePBRMaps) {
+                    if (ImGui::Button("Load Diffuse"))
+                        ImGui::OpenPopup("Load Diffuse");
+                    if (file_dialog.showFileDialog("Load Diffuse", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
+                                                   ImVec2(700, 310), ".dds")) {
+                        m_texDiffuse = loadTexture(file_dialog.selected_path.c_str());
+                    }
+                    if (ImGui::Button("Load Normal"))
+                        ImGui::OpenPopup("Load Normal");
+                    if (file_dialog.showFileDialog("Load Normal", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
+                                                   ImVec2(700, 310), ".dds")) {
+                        m_texNormal = loadTexture(file_dialog.selected_path.c_str());
+                    }
+                    if (ImGui::Button("Load AORM"))
+                        ImGui::OpenPopup("Load AORM");
+                    if (file_dialog.showFileDialog("Load AORM", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
+                                                   ImVec2(700, 310), ".dds")) {
+                        m_texNormal = loadTexture(file_dialog.selected_path.c_str());
+                    }
+                } else {
+                    ImGui::SliderFloat("Roughness", &m_settings.m_roughness, 0.0, 1);
+                    ImGui::SliderFloat("Metallic", &m_settings.m_metallic, 0.0, 1);
+                    ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
                 }
 
                 ImGui::End();
@@ -177,10 +278,20 @@ namespace RenderCore {
                 bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height));
 
                 auto cam_pos = cameraGetPosition();
-                m_viewPos[0] = cam_pos.x;
-                m_viewPos[1] = cam_pos.y;
-                m_viewPos[2] = cam_pos.z;
-                bgfx::setUniform(u_viewPos, m_viewPos);
+                m_settings.m_viewPos[0] = cam_pos.x;
+                m_settings.m_viewPos[1] = cam_pos.y;
+                m_settings.m_viewPos[2] = cam_pos.z;
+//                bgfx::setUniform(u_viewPos, m_viewPos);
+
+                // load settings to uniforms
+                m_uniforms.u_roughness = m_settings.m_roughness;
+                m_uniforms.u_metallic = m_settings.m_metallic;
+                m_uniforms.u_exposure = m_settings.m_exposure;
+                m_uniforms.u_usePBRMaps = m_settings.m_usePBRMaps;
+                bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
+                bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
+                bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
+                m_uniforms.submit();
 
                 // view and proj matrix for view 0 (mesh and light)
                 const bgfx::Caps *caps = bgfx::getCaps();
@@ -232,9 +343,11 @@ namespace RenderCore {
                     // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
                     bx::mtxTranslate(model_matrix, 0.0, 0.0, 0.0);
                     // set texture
-                    bgfx::setTexture(0, s_texDiffuse, m_texDiffuse);
-                    bgfx::setTexture(1, s_texNormal, m_texNormal);
-                    bgfx::setTexture(2, s_texAORM, m_texAORM);
+                    bgfx::setTexture(0, s_texCubeIrr, m_texCubeIrr);
+                    bgfx::setTexture(1, s_texCube, m_texCube);
+                    bgfx::setTexture(2, s_texDiffuse, m_texDiffuse);
+                    bgfx::setTexture(3, s_texNormal, m_texNormal);
+                    bgfx::setTexture(4, s_texAORM, m_texAORM);
                     // draw mesh
                     meshSubmit(m_mesh, 0, m_meshProgram, model_matrix, state);
                 }
@@ -255,9 +368,9 @@ namespace RenderCore {
                     view_sky[13] = 0;
                     view_sky[14] = 0;
                     bgfx::setViewTransform(1, view_sky, proj_matrix);
-                    float mtx[16];
-                    bx::mtxTranslate(mtx, 0.0, 0.0, 0.0);
-                    meshSubmit(m_skyBoxMesh, 1, m_skyBoxProgram, mtx, state);
+                    float model_sky[16];
+                    bx::mtxIdentity(model_sky);
+                    meshSubmit(m_skyBoxMesh, 1, m_skyBoxProgram, model_sky, state);
                 }
 
                 // Advance to next frame. Rendering thread will be kicked to
@@ -287,6 +400,7 @@ namespace RenderCore {
         bgfx::UniformHandle u_lightPos;
 
         Mesh *m_mesh;
+        std::string m_meshName;
         bgfx::ProgramHandle m_meshProgram;
         bgfx::TextureHandle m_texDiffuse;
         bgfx::UniformHandle s_texDiffuse;
@@ -306,12 +420,9 @@ namespace RenderCore {
         int64_t m_timeOffset;
         int32_t m_pt;
 
-        bool m_r;
-        bool m_g;
-        bool m_b;
-        bool m_a;
-
-        int32_t num_boxes;
+        // settings
+        Settings m_settings;
+        Uniforms m_uniforms;
 
         imgui_addons::ImGuiFileBrowser file_dialog;
     };
