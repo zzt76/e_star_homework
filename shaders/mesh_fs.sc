@@ -1,4 +1,4 @@
-$input v_pos, v_view, v_normal, v_texcoord0
+$input v_pos, v_normal, v_texcoord0
 
 #include "../bgfx/examples/common/common.sh"
 
@@ -8,8 +8,6 @@ $input v_pos, v_view, v_normal, v_texcoord0
 #include "uniforms.sh"
 
 uniform vec4 u_time;
-// uniform vec4 u_lightPos;
-// uniform vec4 u_viewPos;
 
 SAMPLERCUBE(s_texCubeIrr, 0);
 SAMPLERCUBE(s_texCube, 1);
@@ -92,9 +90,9 @@ void main()
     float roughness = u_roughness;
     float metallic = u_metallic;
     float exposure = u_exposure;
-    vec3 diffuseColor = vec3(1.0);
+    vec3 diffuseColor = u_diffuseColor.xyz;
     float ao = 1.0;
-    if(u_usePBRMaps == 1.0){
+    if(u_usePBRMaps != 0.0){
         diffuseColor = texture2D(s_texDiffuse, v_texcoord0).rgb;
         normal = getNormalFromMap();
         vec3 texAORM = texture2D(s_texAORM, v_texcoord0).rgb;

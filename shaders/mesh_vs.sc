@@ -1,5 +1,5 @@
 $input a_position, a_normal, a_texcoord0
-$output v_pos, v_view, v_normal, v_texcoord0
+$output v_pos, v_normal, v_texcoord0
 
 #include "../bgfx/examples/common/common.sh"
 

@@ -15,7 +15,7 @@ namespace RenderCore {
 
     struct Uniforms {
         enum {
-            NumVec4 = 4
+            NumVec4 = 5
         };
 
         void init() {
@@ -44,6 +44,9 @@ namespace RenderCore {
                 struct {
                     float u_roughness, u_metallic, u_exposure, u_usePBRMaps;
                 };
+                struct {
+                    float u_diffuseColor[4];
+                };
             };
 
             float m_params[NumVec4 * 4];
@@ -58,20 +61,27 @@ namespace RenderCore {
             m_lightPos[1] = 10.0f;
             m_lightPos[2] = -10.0f;
             m_lightPos[3] = 1.0f;
+
             m_lightColor[0] = 100.0f;
             m_lightColor[1] = 100.0f;
             m_lightColor[2] = 100.0f;
             m_lightColor[3] = 1.0f;
+
             m_viewPos[0] = 0.0f;
             m_viewPos[1] = 0.0f;
             m_viewPos[2] = -10.0f;
             m_viewPos[3] = 1.0f;
+
             m_roughness = 0.5f;
             m_metallic = 0.1f;
             m_exposure = 2.2f;
-            m_usePBRMaps = true;
-            m_bgType = 3.0f;
-            m_reflectivity = 1.0f;
+            m_usePBRMaps = false;
+
+            m_diffuseColor[0] = 1.0f;
+            m_diffuseColor[1] = 1.0f;
+            m_diffuseColor[2] = 1.0f;
+            m_diffuseColor[3] = 1.0f;
+
             m_doDiffuse = false;
             m_doSpecular = false;
             m_doDiffuseIbl = true;
@@ -85,8 +95,7 @@ namespace RenderCore {
         float m_metallic;
         float m_exposure;
         bool m_usePBRMaps;
-        float m_bgType;
-        float m_reflectivity;
+        float m_diffuseColor[4];
         bool m_doDiffuse;
         bool m_doSpecular;
         bool m_doDiffuseIbl;
@@ -132,6 +141,7 @@ namespace RenderCore {
 
             // create mesh program from shaders
             m_meshName = "../resource/pbr_stone/pbr_stone_mes.bin";
+            m_meshName = "../resource/basic_meshes/bunny.bin";
             m_mesh = meshLoad(m_meshName.c_str());
             if (!m_mesh) {
                 std::cout << "mesh not load!" << std::endl;
@@ -148,9 +158,6 @@ namespace RenderCore {
 
             cameraCreate();
             cameraSetPosition(bx::Vec3(0.0f, 0.0f, -10.0f));
-            u_viewPos = bgfx::createUniform("u_viewPos", bgfx::UniformType::Vec4);
-
-//            m_skyProgram = loadProgram("sky_vs", "sky_fs");
 
             m_skyBoxMesh = meshLoad(R"(../resource/basic_meshes/cube.bin)");
             m_skyBoxProgram = loadProgram("sky_vs", "sky_fs");
@@ -248,9 +255,10 @@ namespace RenderCore {
                         ImGui::OpenPopup("Load AORM");
                     if (file_dialog.showFileDialog("Load AORM", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
                                                    ImVec2(700, 310), ".dds")) {
-                        m_texNormal = loadTexture(file_dialog.selected_path.c_str());
+                        m_texAORM = loadTexture(file_dialog.selected_path.c_str());
                     }
                 } else {
+                    ImGui::ColorEdit3("Diffuse Color", m_settings.m_diffuseColor);
                     ImGui::SliderFloat("Roughness", &m_settings.m_roughness, 0.0, 1);
                     ImGui::SliderFloat("Metallic", &m_settings.m_metallic, 0.0, 1);
                     ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
@@ -276,12 +284,12 @@ namespace RenderCore {
                 bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 // set view 1 rectangle
                 bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height));
+                bgfx::setViewRect(2, 0, 0, uint16_t(m_width), uint16_t(m_height));
 
                 auto cam_pos = cameraGetPosition();
                 m_settings.m_viewPos[0] = cam_pos.x;
                 m_settings.m_viewPos[1] = cam_pos.y;
                 m_settings.m_viewPos[2] = cam_pos.z;
-//                bgfx::setUniform(u_viewPos, m_viewPos);
 
                 // load settings to uniforms
                 m_uniforms.u_roughness = m_settings.m_roughness;
@@ -291,6 +299,7 @@ namespace RenderCore {
                 bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
+                bx::memCopy(m_uniforms.u_diffuseColor, m_settings.m_diffuseColor, 4 * sizeof(float));
                 m_uniforms.submit();
 
                 // view and proj matrix for view 0 (mesh and light)
@@ -304,33 +313,27 @@ namespace RenderCore {
                 bgfx::setViewTransform(0, view_matrix, proj_matrix);
 
                 // render light
-//                { // Current primitive topology
-//                    uint64_t state = 0
-//                                     | (m_r ? BGFX_STATE_WRITE_R : 0)
-//                                     | (m_g ? BGFX_STATE_WRITE_G : 0)
-//                                     | (m_b ? BGFX_STATE_WRITE_B : 0)
-//                                     | (m_a ? BGFX_STATE_WRITE_A : 0)
-//                                     | BGFX_STATE_WRITE_Z
-//                                     | BGFX_STATE_DEPTH_TEST_LESS
-//                                     | BGFX_STATE_CULL_CW
-//                                     | BGFX_STATE_MSAA
-//                                     | BGFX_STATE_PT_TRISTRIP;
-//                    float mtx[16];
-////                    m_lightPos[0] = 10.0f * cos(time);
-////                    m_lightPos[2] = 10.0f * sin(time);
-//
-//                    bx::mtxTranslate(mtx, m_lightPos[0], m_lightPos[1], m_lightPos[2]);
-//                    bgfx::setUniform(u_lightPos, &m_lightPos);
-//                    // Set model matrix for rendering.
-//                    bgfx::setTransform(mtx);
-//                    // Set vertex and index buffer.
-//                    bgfx::setVertexBuffer(0, m_lightVbh);
-//                    bgfx::setIndexBuffer(m_lightIbh);
-//                    // Set render states.
-//                    bgfx::setState(state);
-//                    // Submit primitive for rendering to view 1.
-//                    bgfx::submit(0, m_lightProgram);
-//                }
+                { // Current primitive topology
+                    uint64_t state = 0
+                                     | BGFX_STATE_WRITE_RGB
+                                     | BGFX_STATE_WRITE_Z
+                                     | BGFX_STATE_DEPTH_TEST_LESS
+                                     | BGFX_STATE_CULL_CW
+                                     | BGFX_STATE_MSAA
+                                     | BGFX_STATE_PT_TRISTRIP;
+                    float mtx[16];
+
+                    bx::mtxTranslate(mtx, m_settings.m_lightPos[0], m_settings.m_lightPos[1], m_settings.m_lightPos[2]);
+                    // Set model matrix for rendering.
+                    bgfx::setTransform(mtx);
+                    // Set vertex and index buffer.
+                    bgfx::setVertexBuffer(0, m_lightVbh);
+                    bgfx::setIndexBuffer(m_lightIbh);
+                    // Set render states.
+                    bgfx::setState(state);
+                    // Submit primitive for rendering to view 0.
+                    bgfx::submit(0, m_lightProgram);
+                }
 
                 // render mesh
                 {
@@ -367,10 +370,10 @@ namespace RenderCore {
                     view_sky[12] = 0;
                     view_sky[13] = 0;
                     view_sky[14] = 0;
-                    bgfx::setViewTransform(1, view_sky, proj_matrix);
+                    bgfx::setViewTransform(2, view_sky, proj_matrix);
                     float model_sky[16];
                     bx::mtxIdentity(model_sky);
-                    meshSubmit(m_skyBoxMesh, 1, m_skyBoxProgram, model_sky, state);
+                    meshSubmit(m_skyBoxMesh, 2, m_skyBoxProgram, model_sky, state);
                 }
 
                 // Advance to next frame. Rendering thread will be kicked to
@@ -390,14 +393,9 @@ namespace RenderCore {
         uint32_t m_debug;
         uint32_t m_reset;
 
-        bgfx::UniformHandle u_viewPos;
-        float m_viewPos[4]{0.0, 0.0, -10.0, 1.0};
-
         bgfx::VertexBufferHandle m_lightVbh;
         bgfx::IndexBufferHandle m_lightIbh;
         bgfx::ProgramHandle m_lightProgram;
-        float m_lightPos[4]{-5.0, 10.0, -10.0, 1.0};
-        bgfx::UniformHandle u_lightPos;
 
         Mesh *m_mesh;
         std::string m_meshName;
