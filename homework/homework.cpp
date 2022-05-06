@@ -13,6 +13,44 @@
 
 namespace RenderCore {
 
+    constexpr int SHADOW_PASS_ID = 0;
+    constexpr int SCENE_PASS_ID = 1;
+    constexpr int SKYBOX_PASS_ID = 2;
+
+    // platform vertices and indices
+    struct PosNormalVertex {
+        float m_x;
+        float m_y;
+        float m_z;
+        uint32_t m_normal;
+
+        static void init() {
+            ms_layout
+                    .begin()
+                    .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+                    .add(bgfx::Attrib::Normal, 4, bgfx::AttribType::Uint8, true, true)
+                    .end();
+        };
+
+        static bgfx::VertexLayout ms_layout;
+    };
+
+    bgfx::VertexLayout PosNormalVertex::ms_layout;
+
+    static PosNormalVertex s_hplaneVertices[] =
+            {
+                    {-1.0f, 0.0f, 1.0f,  encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
+                    {1.0f,  0.0f, 1.0f,  encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
+                    {-1.0f, 0.0f, -1.0f, encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
+                    {1.0f,  0.0f, -1.0f, encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
+            };
+
+    static const uint16_t s_planeIndices[] =
+            {
+                    0, 1, 2,
+                    1, 3, 2,
+            };
+
     struct Uniforms {
         enum {
             NumVec4 = 5
@@ -168,6 +206,7 @@ namespace RenderCore {
 
             // load settings and uniforms
             m_uniforms.init();
+            auto a = meshStateCreate();
 
             imguiCreate();
         }
@@ -280,11 +319,14 @@ namespace RenderCore {
                 const auto deltaTime = float(frameTime / freq);
                 cameraUpdate(deltaTime, m_mouseState);
 
-                // set view 0 rectangle
-                bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height));
-                // set view 1 rectangle
-                bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height));
-                bgfx::setViewRect(2, 0, 0, uint16_t(m_width), uint16_t(m_height));
+                // set view rectangle
+                bgfx::setViewRect(SHADOW_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
+                bgfx::setViewRect(SCENE_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
+                bgfx::setViewRect(SKYBOX_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
+
+                bgfx::setViewClear(SHADOW_PASS_ID, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+                bgfx::setViewClear(SCENE_PASS_ID, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+                bgfx::setViewClear(SKYBOX_PASS_ID, 0, 0x303030ff, 1.0f, 0);
 
                 auto cam_pos = cameraGetPosition();
                 m_settings.m_viewPos[0] = cam_pos.x;
@@ -302,15 +344,7 @@ namespace RenderCore {
                 bx::memCopy(m_uniforms.u_diffuseColor, m_settings.m_diffuseColor, 4 * sizeof(float));
                 m_uniforms.submit();
 
-                // view and proj matrix for view 0 (mesh and light)
                 const bgfx::Caps *caps = bgfx::getCaps();
-                float view_matrix[16];
-                cameraGetViewMtx(view_matrix);
-                float proj_matrix[16];
-                bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
-                            0.1f, 100.0f, caps->homogeneousDepth);
-                // view transform 0 for mesh
-                bgfx::setViewTransform(0, view_matrix, proj_matrix);
 
                 // render light
                 { // Current primitive topology
@@ -327,16 +361,25 @@ namespace RenderCore {
                     // Set model matrix for rendering.
                     bgfx::setTransform(mtx);
                     // Set vertex and index buffer.
-                    bgfx::setVertexBuffer(0, m_lightVbh);
+                    bgfx::setVertexBuffer(SCENE_PASS_ID, m_lightVbh);
                     bgfx::setIndexBuffer(m_lightIbh);
                     // Set render states.
                     bgfx::setState(state);
                     // Submit primitive for rendering to view 0.
-                    bgfx::submit(0, m_lightProgram);
+                    bgfx::submit(SCENE_PASS_ID, m_lightProgram);
                 }
 
                 // render mesh
                 {
+                    // view and proj matrix for view (mesh and light)
+                    float view_matrix[16];
+                    float proj_matrix[16];
+                    cameraGetViewMtx(view_matrix);
+                    bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
+                                0.1f, 100.0f, caps->homogeneousDepth);
+                    // view transform 0 for mesh
+                    bgfx::setViewTransform(SCENE_PASS_ID, view_matrix, proj_matrix);
+
                     uint64_t state = 0
                                      | BGFX_STATE_WRITE_RGB
                                      | BGFX_STATE_WRITE_Z
@@ -352,7 +395,7 @@ namespace RenderCore {
                     bgfx::setTexture(3, s_texNormal, m_texNormal);
                     bgfx::setTexture(4, s_texAORM, m_texAORM);
                     // draw mesh
-                    meshSubmit(m_mesh, 0, m_meshProgram, model_matrix, state);
+                    meshSubmit(m_mesh, SCENE_PASS_ID, m_meshProgram, model_matrix, state);
                 }
 
                 // render sky box
@@ -370,10 +413,13 @@ namespace RenderCore {
                     view_sky[12] = 0;
                     view_sky[13] = 0;
                     view_sky[14] = 0;
-                    bgfx::setViewTransform(2, view_sky, proj_matrix);
+                    float proj_sky[16];
+                    bx::mtxProj(proj_sky, cameraGetFoV(), float(m_width) / float(m_height),
+                                0.1f, 100.0f, caps->homogeneousDepth);
+                    bgfx::setViewTransform(SKYBOX_PASS_ID, view_sky, proj_sky);
                     float model_sky[16];
                     bx::mtxIdentity(model_sky);
-                    meshSubmit(m_skyBoxMesh, 2, m_skyBoxProgram, model_sky, state);
+                    meshSubmit(m_skyBoxMesh, SKYBOX_PASS_ID, m_skyBoxProgram, model_sky, state);
                 }
 
                 // Advance to next frame. Rendering thread will be kicked to

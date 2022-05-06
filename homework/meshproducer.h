@@ -157,39 +157,6 @@ namespace RenderCore::Cubes {
         create_cubes_index_buffer(m_ibh);
     }
 
-    // platform vertices and indices
-    struct PosNormalVertex {
-        float m_x;
-        float m_y;
-        float m_z;
-        uint32_t m_normal;
-
-        static void init() {
-            ms_layout
-                    .begin()
-                    .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-                    .add(bgfx::Attrib::Normal, 4, bgfx::AttribType::Uint8, true, true)
-                    .end();
-        };
-
-        static bgfx::VertexLayout ms_layout;
-    };
-
-    bgfx::VertexLayout PosNormalVertex::ms_layout;
-
-    static PosNormalVertex s_hplaneVertices[] =
-            {
-                    {-1.0f, 0.0f, 1.0f,  encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-                    {1.0f,  0.0f, 1.0f,  encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-                    {-1.0f, 0.0f, -1.0f, encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-                    {1.0f,  0.0f, -1.0f, encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-            };
-
-    static const uint16_t s_planeIndices[] =
-            {
-                    0, 1, 2,
-                    1, 3, 2,
-            };
 
 }
 
