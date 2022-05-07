@@ -70,8 +70,8 @@ namespace RenderCore {
             m_lightPos[3] = 1.0f;
 
             m_lightColor[0] = 100.0f;
-            m_lightColor[1] = 200.0f;
-            m_lightColor[2] = 500.0f;
+            m_lightColor[1] = 700.0f;
+            m_lightColor[2] = 1000.0f;
             m_lightColor[3] = 1.0f;
 
             m_viewPos[0] = 0.0f;
@@ -183,7 +183,7 @@ namespace RenderCore {
             // u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
 
             // create mesh program from shaders
-            m_pbrStone = meshLoad("../resource/pbr_stone/pbr_stone_mes.bin");
+            m_pbrStone = meshLoad("../resource/pbr_stone/pbr_stone_mesh.bin");
 
             m_meshName = "../resource/basic_meshes/bunny.bin";
             m_mesh = meshLoad(m_meshName.c_str());
@@ -210,6 +210,8 @@ namespace RenderCore {
             m_texCubeIrr = loadTexture(R"(../resource/env_maps/kyoto_irr.dds)");
             s_texCubeIrr = bgfx::createUniform("s_texCubeIrr", bgfx::UniformType::Sampler);
 
+            // some other meshes
+            m_hollowCube = meshLoad(R"(../resource/basic_meshes/hollowcube.bin)");
             // load m_state
             m_state[0] = meshStateCreate();
             m_state[0]->m_state = 0;
@@ -227,11 +229,19 @@ namespace RenderCore {
                                   | BGFX_STATE_MSAA;
             m_state[1]->m_program = m_meshProgram;
             m_state[1]->m_viewId = SCENE_PASS_ID;
-            m_state[1]->m_numTextures = 1;
-            m_state[1]->m_textures[0].m_flags = UINT32_MAX;
+            m_state[1]->m_numTextures = 3;
+            m_state[1]->m_textures[0].m_flags = 0;
             m_state[1]->m_textures[0].m_stage = 0;
-            m_state[1]->m_textures[0].m_sampler = s_shadowMap;
-            m_state[1]->m_textures[0].m_texture = BGFX_INVALID_HANDLE;
+            m_state[1]->m_textures[0].m_sampler = s_texCube;
+            m_state[1]->m_textures[0].m_texture = m_texCube;
+            m_state[1]->m_textures[1].m_flags = 0;
+            m_state[1]->m_textures[1].m_stage = 1;
+            m_state[1]->m_textures[1].m_sampler = s_texCubeIrr;
+            m_state[1]->m_textures[1].m_texture = m_texCubeIrr;
+            m_state[1]->m_textures[2].m_flags = UINT32_MAX;
+            m_state[1]->m_textures[2].m_stage = 2;
+            m_state[1]->m_textures[2].m_sampler = s_shadowMap;
+            m_state[1]->m_textures[2].m_texture = m_shadowMap;
 
             // load settings and uniforms
             m_uniforms.init();
@@ -302,10 +312,9 @@ namespace RenderCore {
                     std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
                     m_meshName = file_dialog.selected_path;
                     m_mesh = meshLoad(m_meshName.c_str());
-                    m_settings.m_visPbrStone = false;
                 }
 
-                if (ImGui::TreeNode("Mesh BRDF Params")) {
+                if (ImGui::TreeNode("Meshes BRDF Params")) {
                     ImGui::ColorEdit3("Diffuse Color", m_settings.m_diffuseColor);
                     ImGui::SliderFloat("Roughness", &m_settings.m_roughness, 0.0, 1);
                     ImGui::SliderFloat("Metallic", &m_settings.m_metallic, 0.0, 1);
@@ -380,7 +389,7 @@ namespace RenderCore {
                                           | BGFX_STATE_MSAA;
 
                     m_state[1]->m_program = m_meshProgram;
-                    m_state[1]->m_textures[0].m_texture = m_shadowMap;
+                    m_state[1]->m_textures[2].m_texture = shadowMapTexture;
                     m_shadowMap = shadowMapTexture;
                     // bgfx::setTexture(0, s_shadowMap, shadowMapTexture);
                 }
@@ -487,10 +496,9 @@ namespace RenderCore {
                     bgfx::setUniform(u_lightMtx, lightMtx);
                     // draw mesh
                     meshSubmit(m_pbrStone, SCENE_PASS_ID, m_meshProgram, modelStone, state);
+                    // set: not use pbr maps for other meshes
+                    m_uniforms.u_usePBRMaps = false;
                 }
-
-                // set: not use pbr maps for other meshes
-                m_uniforms.u_usePBRMaps = false;
 
                 // render floor
                 {
@@ -547,6 +555,24 @@ namespace RenderCore {
                     bgfx::submit(SCENE_PASS_ID, m_lightProgram);
                 }
 
+                // render hollow cube
+                {
+                    float modelHollowCube[16];
+                    bx::mtxSRT(modelHollowCube, 1.0f, 1.0f, 1.0f, 0.0f, 1.56f - time, 0.0f, -20.0f, 5.0f, 20.0f
+                    );
+                    // shadow pass
+                    bx::mtxMul(lightMtx, modelHollowCube, mtxShadow);
+                    bgfx::setUniform(u_lightMtx, lightMtx);
+                    meshSubmit(m_hollowCube, &m_state[0], 1, modelHollowCube);
+
+                    // scene pass
+                    // submit uniforms
+                    m_uniforms.submit();
+                    bgfx::setUniform(u_lightMtx, lightMtx);
+                    // draw mesh
+                    meshSubmit(m_hollowCube, &m_state[1], 1, modelHollowCube);
+                }
+
                 // render mesh
                 {
                     float modelMesh[16];
@@ -559,25 +585,11 @@ namespace RenderCore {
                     meshSubmit(m_mesh, &m_state[0], 1, modelMesh);
 
                     // scene pass
-                    uint64_t state = 0
-                                     | BGFX_STATE_WRITE_RGB
-                                     | BGFX_STATE_WRITE_A
-                                     | BGFX_STATE_WRITE_Z
-                                     | BGFX_STATE_DEPTH_TEST_LESS
-                                     | BGFX_STATE_CULL_CCW
-                                     | BGFX_STATE_MSAA;
-                    // set texture
-                    bgfx::setTexture(0, s_texCube, m_texCube);
-                    bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
-                    bgfx::setTexture(2, s_shadowMap, m_shadowMap, UINT32_MAX);
-                    bgfx::setTexture(3, s_texDiffuse, m_texDiffuse);
-                    bgfx::setTexture(4, s_texNormal, m_texNormal);
-                    bgfx::setTexture(5, s_texAORM, m_texAORM);
                     // submit uniforms
                     m_uniforms.submit();
                     bgfx::setUniform(u_lightMtx, lightMtx);
                     // draw mesh
-                    meshSubmit(m_mesh, SCENE_PASS_ID, m_meshProgram, modelMesh, state);
+                    meshSubmit(m_mesh, &m_state[1], 1, modelMesh);
                 }
 
                 // render sky box
@@ -651,6 +663,7 @@ namespace RenderCore {
         int32_t m_pt;
 
         // shadow map related
+        Mesh *m_hollowCube;
         MeshState *m_state[2];
         bgfx::VertexBufferHandle m_planeVbh;
         bgfx::IndexBufferHandle m_planeIbh;
