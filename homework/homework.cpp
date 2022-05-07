@@ -191,6 +191,9 @@ namespace RenderCore {
             // Get renderer capabilities info.
             const bgfx::Caps *caps = bgfx::getCaps();
 
+            m_shadowSamplerSupported = 0 != (caps->supported & BGFX_CAPS_TEXTURE_COMPARE_LEQUAL);
+            m_useShadowSampler = m_shadowSamplerSupported;
+
             float depthScaleOffset[4] = {1.0f, 0.0f, 0.0f, 0.0f};
             if (caps->homogeneousDepth) {
                 depthScaleOffset[0] = 0.5f;
@@ -212,6 +215,7 @@ namespace RenderCore {
 
             // init shadow map program
             m_shadowProgram = loadProgram("shadow_vs", "shadow_fs");
+            m_shadowMapFB = BGFX_INVALID_HANDLE;
 
             // init a cube light
             Cubes::init_cube(m_lightVbh, m_lightIbh);
@@ -366,8 +370,13 @@ namespace RenderCore {
                     ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
                 }
 
-                ImGui::End();
+                bool shadowSamplerModeChanged = false;
+                if (m_shadowSamplerSupported)
+                    ImGui::Checkbox("Use Shadow Mapping", &m_useShadowSampler);
+                else
+                    ImGui::Text("Shadow sampler is not supported");
 
+                ImGui::End();
 
                 imguiEndFrame();
 
@@ -382,13 +391,70 @@ namespace RenderCore {
                 const auto deltaTime = float(frameTime / freq);
                 cameraUpdate(deltaTime, m_mouseState);
 
-                // set view rectangle
-                bgfx::setViewRect(SHADOW_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
-                bgfx::setViewRect(SCENE_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
-                bgfx::setViewRect(SKYBOX_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
+                // shadow map settings
+                if (!bgfx::isValid(m_shadowMapFB)) {
+                    bgfx::TextureHandle shadowMapTexture = BGFX_INVALID_HANDLE;
+                    if (m_useShadowSampler) {
+                        m_shadowProgram = loadProgram("shadow_vs", "shadow_fs");
 
+                        bgfx::TextureHandle fbtextures[] =
+                                {
+                                        bgfx::createTexture2D(
+                                                m_shadowMapSize, m_shadowMapSize, false, 1, bgfx::TextureFormat::D16,
+                                                BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL
+                                        ),
+                                };
+
+                        shadowMapTexture = fbtextures[0];
+                        m_shadowMapFB = bgfx::createFrameBuffer(BX_COUNTOF(fbtextures), fbtextures, true);
+                    }
+
+                    m_state[0]->m_program = m_shadowProgram;
+                    m_state[0]->m_state = 0
+                                          | (m_useShadowSampler ? 0 : BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A)
+                                          | BGFX_STATE_WRITE_Z
+                                          | BGFX_STATE_DEPTH_TEST_LESS
+                                          | BGFX_STATE_CULL_CCW
+                                          | BGFX_STATE_MSAA;
+
+                    m_state[1]->m_program = m_meshProgram;
+                    m_state[1]->m_textures[0].m_texture = shadowMapTexture;
+                }
+
+                // set up lights, already set up
+
+                // define matrices
+                float lightView[16];
+                float lightProj[16];
+
+                const bx::Vec3 at = {0.0f, 0.0f, 0.0f};
+                const bx::Vec3 eye = {-m_settings.m_lightPos[0], -m_settings.m_lightPos[1], -m_settings.m_lightPos[2]};
+                bx::mtxLookAt(lightView, eye, at);
+
+                const bgfx::Caps *caps = bgfx::getCaps();
+                const float area = 30.0f;
+                bx::mtxOrtho(lightProj, -area, area, -area, area, -100.0f, 100.0f, 0.0f, caps->homogeneousDepth);
+
+                // set shadow map pass
+                bgfx::setViewRect(SHADOW_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
+                bgfx::setViewFrameBuffer(SHADOW_PASS_ID, m_shadowMapFB);
+                bgfx::setViewTransform(SHADOW_PASS_ID, lightView, lightProj);
                 bgfx::setViewClear(SHADOW_PASS_ID, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+
+                // set scene pass
+                bgfx::setViewRect(SCENE_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 bgfx::setViewClear(SCENE_PASS_ID, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+                // view and proj matrix for
+                float view_matrix[16];
+                float proj_matrix[16];
+                cameraGetViewMtx(view_matrix);
+                bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
+                            0.1f, 100.0f, caps->homogeneousDepth);
+                // view transform 0 for mesh
+                bgfx::setViewTransform(SCENE_PASS_ID, view_matrix, proj_matrix);
+
+                // set skybox pass
+                bgfx::setViewRect(SKYBOX_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 bgfx::setViewClear(SKYBOX_PASS_ID, 0, 0x303030ff, 1.0f, 0);
 
                 auto cam_pos = cameraGetPosition();
@@ -406,8 +472,6 @@ namespace RenderCore {
                 bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_diffuseColor, m_settings.m_diffuseColor, 4 * sizeof(float));
-
-                const bgfx::Caps *caps = bgfx::getCaps();
 
                 // render floor
                 {
@@ -452,15 +516,6 @@ namespace RenderCore {
 
                 // render mesh
                 {
-                    // view and proj matrix for view (mesh and light)
-                    float view_matrix[16];
-                    float proj_matrix[16];
-                    cameraGetViewMtx(view_matrix);
-                    bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
-                                0.1f, 100.0f, caps->homogeneousDepth);
-                    // view transform 0 for mesh
-                    bgfx::setViewTransform(SCENE_PASS_ID, view_matrix, proj_matrix);
-
                     m_uniforms.submit();
                     uint64_t state = 0
                                      | BGFX_STATE_WRITE_RGB
@@ -499,6 +554,8 @@ namespace RenderCore {
                     bx::mtxProj(proj_sky, cameraGetFoV(), float(m_width) / float(m_height),
                                 0.1f, 100.0f, caps->homogeneousDepth);
                     bgfx::setViewTransform(SKYBOX_PASS_ID, view_sky, proj_sky);
+                    // bgfx::setTexture(0, s_texCubeIrr, m_texCubeIrr);
+                    // bgfx::setTexture(1, s_texCube, m_texCube);
                     float model_sky[16];
                     bx::mtxIdentity(model_sky);
                     meshSubmit(m_skyBoxMesh, SKYBOX_PASS_ID, m_skyBoxProgram, model_sky, state);
@@ -556,7 +613,9 @@ namespace RenderCore {
         bgfx::UniformHandle u_lightMtx;
         bgfx::UniformHandle u_depthScaleOffset;
         bgfx::ProgramHandle m_shadowProgram;
+        bool m_shadowSamplerSupported;
         bool m_useShadowSampler;
+        bgfx::FrameBufferHandle m_shadowMapFB;
 
         float m_view[16];
         float m_proj[16];
