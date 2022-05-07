@@ -9,12 +9,12 @@ $input v_pos, v_normal, v_texcoord0, v_shadowcoord
 
 uniform vec4 u_time;
 
-SAMPLERCUBE(s_texCubeIrr, 0);
-SAMPLERCUBE(s_texCube, 1);
-SAMPLER2D(s_texDiffuse, 2);
-SAMPLER2D(s_texNormal, 3);
-SAMPLER2D(s_texAORM, 4);
-SAMPLER2D(s_shadowMap, 5);
+SAMPLERCUBE(s_texCube, 0);
+SAMPLERCUBE(s_texCubeIrr, 1);
+SAMPLER2D(s_shadowMap, 2);
+SAMPLER2D(s_texDiffuse, 3);
+SAMPLER2D(s_texNormal, 4);
+SAMPLER2D(s_texAORM, 5);
 
 vec3 getNormalFromMap()
 {
@@ -101,7 +101,7 @@ void main()
     vec3 diffuseColor = u_diffuseColor.xyz;
 
     float ao = 1.0;
-    if(u_usePBRMaps != 0.0){
+    if(u_usePbrMaps != 0.0){
         diffuseColor = texture2D(s_texDiffuse, v_texcoord0).rgb;
         normal = getNormalFromMap();
         vec3 texAORM = texture2D(s_texAORM, v_texcoord0).rgb;

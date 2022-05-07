@@ -17,40 +17,6 @@ namespace RenderCore {
     constexpr int SCENE_PASS_ID = 1;
     constexpr int SKYBOX_PASS_ID = 2;
 
-    // platform vertices and indices
-    struct PosNormalVertex {
-        float m_x;
-        float m_y;
-        float m_z;
-        uint32_t m_normal;
-
-        static void init() {
-            ms_layout
-                    .begin()
-                    .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-                    .add(bgfx::Attrib::Normal, 4, bgfx::AttribType::Uint8, true, true)
-                    .end();
-        };
-
-        static bgfx::VertexLayout ms_layout;
-    };
-
-    bgfx::VertexLayout PosNormalVertex::ms_layout;
-
-    static PosNormalVertex s_hplaneVertices[] =
-            {
-                    {-1.0f, 0.0f, 1.0f,  encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-                    {1.0f,  0.0f, 1.0f,  encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-                    {-1.0f, 0.0f, -1.0f, encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-                    {1.0f,  0.0f, -1.0f, encodeNormalRgba8(0.0f, 1.0f, 0.0f)},
-            };
-
-    static const uint16_t s_planeIndices[] =
-            {
-                    0, 1, 2,
-                    1, 3, 2,
-            };
-
     struct Uniforms {
         enum {
             NumVec4 = 6
@@ -100,23 +66,23 @@ namespace RenderCore {
         Settings() {
             m_lightPos[0] = -5.0f;
             m_lightPos[1] = 10.0f;
-            m_lightPos[2] = -10.0f;
+            m_lightPos[2] = 1.0f;
             m_lightPos[3] = 1.0f;
 
             m_lightColor[0] = 100.0f;
-            m_lightColor[1] = 100.0f;
-            m_lightColor[2] = 100.0f;
+            m_lightColor[1] = 200.0f;
+            m_lightColor[2] = 500.0f;
             m_lightColor[3] = 1.0f;
 
             m_viewPos[0] = 0.0f;
-            m_viewPos[1] = 0.0f;
-            m_viewPos[2] = -10.0f;
+            m_viewPos[1] = 5.0f;
+            m_viewPos[2] = -20.0f;
             m_viewPos[3] = 1.0f;
 
             m_roughness = 0.5f;
             m_metallic = 0.1f;
             m_exposure = 2.2f;
-            m_usePBRMaps = false;
+            m_visPbrStone = true;
 
             m_diffuseColor[0] = 1.0f;
             m_diffuseColor[1] = 1.0f;
@@ -129,6 +95,7 @@ namespace RenderCore {
             m_doSpecularIbl = true;
 
             m_isFloor = false;
+            m_usePbrMaps = false;
         }
 
         float m_lightPos[4];
@@ -137,9 +104,10 @@ namespace RenderCore {
         float m_roughness;
         float m_metallic;
         float m_exposure;
-        bool m_usePBRMaps;
+        bool m_visPbrStone;
         float m_diffuseColor[4];
         bool m_isFloor;
+        bool m_usePbrMaps;
         bool m_doDiffuse;
         bool m_doSpecular;
         bool m_doDiffuseIbl;
@@ -191,8 +159,7 @@ namespace RenderCore {
             // Get renderer capabilities info.
             const bgfx::Caps *caps = bgfx::getCaps();
 
-            m_shadowSamplerSupported = 0 != (caps->supported & BGFX_CAPS_TEXTURE_COMPARE_LEQUAL);
-            m_useShadowSampler = m_shadowSamplerSupported;
+            m_useShadowMapping = true;
 
             float depthScaleOffset[4] = {1.0f, 0.0f, 0.0f, 0.0f};
             if (caps->homogeneousDepth) {
@@ -203,27 +170,21 @@ namespace RenderCore {
 
             bgfx::touch(0);
 
-            PosNormalVertex::init();
-
             // init a plane
-            m_planeVbh = bgfx::createVertexBuffer(
-                    bgfx::makeRef(s_hplaneVertices, sizeof(s_hplaneVertices)), PosNormalVertex::ms_layout
-            );
-            m_planeIbh = bgfx::createIndexBuffer(
-                    bgfx::makeRef(s_planeIndices, sizeof(s_planeIndices))
-            );
+            Triangle::init_plane(m_planeVbh, m_planeIbh);
 
             // init shadow map program
             m_shadowProgram = loadProgram("shadow_vs", "shadow_fs");
             m_shadowMapFB = BGFX_INVALID_HANDLE;
 
             // init a cube light
-            Cubes::init_cube(m_lightVbh, m_lightIbh);
+            Triangle::init_cube(m_lightVbh, m_lightIbh);
             m_lightProgram = loadProgram("light_vs", "light_fs");
             // u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
 
             // create mesh program from shaders
-            m_meshName = "../resource/pbr_stone/pbr_stone_mes.bin";
+            m_pbrStone = meshLoad("../resource/pbr_stone/pbr_stone_mes.bin");
+
             m_meshName = "../resource/basic_meshes/bunny.bin";
             m_mesh = meshLoad(m_meshName.c_str());
             if (!m_mesh) {
@@ -240,7 +201,7 @@ namespace RenderCore {
             s_texAORM = bgfx::createUniform("s_texAORM", bgfx::UniformType::Sampler);
 
             cameraCreate();
-            cameraSetPosition(bx::Vec3(0.0f, 5.0f, -10.0f));
+            cameraSetPosition(bx::Vec3(m_settings.m_viewPos[0], m_settings.m_viewPos[1], m_settings.m_viewPos[2]));
 
             m_skyBoxMesh = meshLoad(R"(../resource/basic_meshes/cube.bin)");
             m_skyBoxProgram = loadProgram("sky_vs", "sky_fs");
@@ -327,8 +288,9 @@ namespace RenderCore {
                                          ImGuiCond_FirstUseEver);
                 ImGui::Begin("Settings", NULL, 0);
 
-                ImGui::SliderFloat3("Light Pos", m_settings.m_lightPos, -10, 10);
-                ImGui::SliderFloat3("Light Color", m_settings.m_lightColor, 1, 500);
+                ImGui::SliderFloat3("Light Pos", m_settings.m_lightPos, -50, 50);
+                ImGui::SliderFloat3("Light Color", m_settings.m_lightColor, 1, 1000);
+                ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
 
                 /* ImGui File Dialog from https://github.com/gallickgunner/ImGui-Addons
                  * Under MIT license
@@ -340,11 +302,18 @@ namespace RenderCore {
                     std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
                     m_meshName = file_dialog.selected_path;
                     m_mesh = meshLoad(m_meshName.c_str());
-                    m_settings.m_usePBRMaps = false;
+                    m_settings.m_visPbrStone = false;
                 }
 
-                ImGui::Checkbox("Use PBR Maps", &m_settings.m_usePBRMaps);
-                if (m_settings.m_usePBRMaps) {
+                if (ImGui::TreeNode("Mesh BRDF Params")) {
+                    ImGui::ColorEdit3("Diffuse Color", m_settings.m_diffuseColor);
+                    ImGui::SliderFloat("Roughness", &m_settings.m_roughness, 0.0, 1);
+                    ImGui::SliderFloat("Metallic", &m_settings.m_metallic, 0.0, 1);
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::TreeNode("PBR Stone")) {
+                    ImGui::Checkbox("Visualize PBR Stone", &m_settings.m_visPbrStone);
                     if (ImGui::Button("Load Diffuse"))
                         ImGui::OpenPopup("Load Diffuse");
                     if (file_dialog.showFileDialog("Load Diffuse", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
@@ -363,18 +332,8 @@ namespace RenderCore {
                                                    ImVec2(700, 310), ".dds")) {
                         m_texAORM = loadTexture(file_dialog.selected_path.c_str());
                     }
-                } else {
-                    ImGui::ColorEdit3("Diffuse Color", m_settings.m_diffuseColor);
-                    ImGui::SliderFloat("Roughness", &m_settings.m_roughness, 0.0, 1);
-                    ImGui::SliderFloat("Metallic", &m_settings.m_metallic, 0.0, 1);
-                    ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
+                    ImGui::TreePop();
                 }
-
-                bool shadowSamplerModeChanged = false;
-                if (m_shadowSamplerSupported)
-                    ImGui::Checkbox("Use Shadow Mapping", &m_useShadowSampler);
-                else
-                    ImGui::Text("Shadow sampler is not supported");
 
                 ImGui::End();
 
@@ -411,7 +370,6 @@ namespace RenderCore {
 
                     shadowMapTexture = fbtextures[0];
                     m_shadowMapFB = bgfx::createFrameBuffer(BX_COUNTOF(fbtextures), fbtextures, true);
-
 
                     m_state[0]->m_program = m_shadowProgram;
                     m_state[0]->m_state = 0
@@ -451,13 +409,13 @@ namespace RenderCore {
                 bgfx::setViewRect(SCENE_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 bgfx::setViewClear(SCENE_PASS_ID, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
                 // view and proj matrix for
-                float view_matrix[16];
-                float proj_matrix[16];
-                cameraGetViewMtx(view_matrix);
-                bx::mtxProj(proj_matrix, cameraGetFoV(), float(m_width) / float(m_height),
+                float viewMatrix[16];
+                float projMatrix[16];
+                cameraGetViewMtx(viewMatrix);
+                bx::mtxProj(projMatrix, cameraGetFoV(), float(m_width) / float(m_height),
                             0.1f, 100.0f, caps->homogeneousDepth);
                 // view transform 0 for mesh
-                bgfx::setViewTransform(SCENE_PASS_ID, view_matrix, proj_matrix);
+                bgfx::setViewTransform(SCENE_PASS_ID, viewMatrix, projMatrix);
 
                 // set skybox pass
                 bgfx::setViewRect(SKYBOX_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
@@ -483,21 +441,56 @@ namespace RenderCore {
                 bx::mtxMul(mtxShadow, lightView, mtxTmp);
 
                 // load camera position to settings
-                auto cam_pos = cameraGetPosition();
-                m_settings.m_viewPos[0] = cam_pos.x;
-                m_settings.m_viewPos[1] = cam_pos.y;
-                m_settings.m_viewPos[2] = cam_pos.z;
+                auto camPos = cameraGetPosition();
+                m_settings.m_viewPos[0] = camPos.x;
+                m_settings.m_viewPos[1] = camPos.y;
+                m_settings.m_viewPos[2] = camPos.z;
 
                 // load settings to uniforms
                 m_uniforms.u_roughness = m_settings.m_roughness;
                 m_uniforms.u_metallic = m_settings.m_metallic;
                 m_uniforms.u_exposure = m_settings.m_exposure;
-                m_uniforms.u_usePBRMaps = m_settings.m_usePBRMaps;
                 m_uniforms.u_isFloor = m_settings.m_isFloor;
                 bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_diffuseColor, m_settings.m_diffuseColor, 4 * sizeof(float));
+
+                // render pbr stone
+                if (m_settings.m_visPbrStone) {
+                    m_uniforms.u_usePBRMaps = true;
+                    float modelStone[16];
+                    // bx::mtxRotateXY(modelStone, 0.0f, time * 0.37f);
+                    bx::mtxSRT(modelStone, 0.3f, 0.3f, 0.3f, 0.0f, 0.0f, 0.0f, 5.0f, 3.0f, 5.0f
+                    );
+
+                    // shadow pass
+                    bx::mtxMul(lightMtx, modelStone, mtxShadow);
+                    bgfx::setUniform(u_lightMtx, lightMtx);
+                    meshSubmit(m_pbrStone, &m_state[0], 1, modelStone);
+
+                    // scene pass
+                    uint64_t state = 0
+                                     | BGFX_STATE_WRITE_RGB
+                                     | BGFX_STATE_WRITE_Z
+                                     | BGFX_STATE_DEPTH_TEST_LESS
+                                     | BGFX_STATE_MSAA;
+                    // set texture
+                    bgfx::setTexture(0, s_texCube, m_texCube);
+                    bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
+                    bgfx::setTexture(2, s_shadowMap, m_shadowMap, UINT32_MAX);
+                    bgfx::setTexture(3, s_texDiffuse, m_texDiffuse);
+                    bgfx::setTexture(4, s_texNormal, m_texNormal);
+                    bgfx::setTexture(5, s_texAORM, m_texAORM);
+                    // submit uniforms
+                    m_uniforms.submit();
+                    bgfx::setUniform(u_lightMtx, lightMtx);
+                    // draw mesh
+                    meshSubmit(m_pbrStone, SCENE_PASS_ID, m_meshProgram, modelStone, state);
+                }
+
+                // set: not use pbr maps for other meshes
+                m_uniforms.u_usePBRMaps = false;
 
                 // render floor
                 {
@@ -539,11 +532,12 @@ namespace RenderCore {
                                      | BGFX_STATE_CULL_CW
                                      | BGFX_STATE_MSAA
                                      | BGFX_STATE_PT_TRISTRIP;
-                    float mtx[16];
+                    float modelLight[16];
                     m_uniforms.submit();
-                    bx::mtxTranslate(mtx, m_settings.m_lightPos[0], m_settings.m_lightPos[1], m_settings.m_lightPos[2]);
+                    bx::mtxTranslate(modelLight, m_settings.m_lightPos[0], m_settings.m_lightPos[1],
+                                     m_settings.m_lightPos[2]);
                     // Set model matrix for rendering.
-                    bgfx::setTransform(mtx);
+                    bgfx::setTransform(modelLight);
                     // Set vertex and index buffer.
                     bgfx::setVertexBuffer(SCENE_PASS_ID, m_lightVbh);
                     bgfx::setIndexBuffer(m_lightIbh);
@@ -555,33 +549,35 @@ namespace RenderCore {
 
                 // render mesh
                 {
-                    float model_matrix[16];
+                    float modelMesh[16];
                     // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
-                    bx::mtxTranslate(model_matrix, 0.0, 5.0, 0.0);
+                    bx::mtxTranslate(modelMesh, 0.0, 5.0, 0.0);
 
                     // shadow pass
-                    bx::mtxMul(lightMtx, model_matrix, mtxShadow);
+                    bx::mtxMul(lightMtx, modelMesh, mtxShadow);
                     bgfx::setUniform(u_lightMtx, lightMtx);
-                    meshSubmit(m_mesh, &m_state[0], 1, model_matrix);
+                    meshSubmit(m_mesh, &m_state[0], 1, modelMesh);
 
                     // scene pass
                     uint64_t state = 0
                                      | BGFX_STATE_WRITE_RGB
+                                     | BGFX_STATE_WRITE_A
                                      | BGFX_STATE_WRITE_Z
                                      | BGFX_STATE_DEPTH_TEST_LESS
+                                     | BGFX_STATE_CULL_CCW
                                      | BGFX_STATE_MSAA;
                     // set texture
-                    bgfx::setTexture(0, s_texCubeIrr, m_texCubeIrr);
-                    bgfx::setTexture(1, s_texCube, m_texCube);
-                    bgfx::setTexture(2, s_texDiffuse, m_texDiffuse);
-                    bgfx::setTexture(3, s_texNormal, m_texNormal);
-                    bgfx::setTexture(4, s_texAORM, m_texAORM);
-                    bgfx::setTexture(5, s_shadowMap, m_shadowMap, UINT32_MAX);
+                    bgfx::setTexture(0, s_texCube, m_texCube);
+                    bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
+                    bgfx::setTexture(2, s_shadowMap, m_shadowMap, UINT32_MAX);
+                    bgfx::setTexture(3, s_texDiffuse, m_texDiffuse);
+                    bgfx::setTexture(4, s_texNormal, m_texNormal);
+                    bgfx::setTexture(5, s_texAORM, m_texAORM);
                     // submit uniforms
                     m_uniforms.submit();
                     bgfx::setUniform(u_lightMtx, lightMtx);
                     // draw mesh
-                    meshSubmit(m_mesh, SCENE_PASS_ID, m_meshProgram, model_matrix, state);
+                    meshSubmit(m_mesh, SCENE_PASS_ID, m_meshProgram, modelMesh, state);
                 }
 
                 // render sky box
@@ -631,6 +627,8 @@ namespace RenderCore {
         bgfx::IndexBufferHandle m_lightIbh;
         bgfx::ProgramHandle m_lightProgram;
 
+        Mesh *m_pbrStone;
+
         Mesh *m_mesh;
         std::string m_meshName;
         bgfx::ProgramHandle m_meshProgram;
@@ -664,7 +662,7 @@ namespace RenderCore {
         bgfx::UniformHandle u_depthScaleOffset;
         bgfx::ProgramHandle m_shadowProgram;
         bool m_shadowSamplerSupported;
-        bool m_useShadowSampler;
+        bool m_useShadowMapping;
         bgfx::FrameBufferHandle m_shadowMapFB;
 
         float m_view[16];
