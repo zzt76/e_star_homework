@@ -1,4 +1,4 @@
-$input v_pos, v_normal, v_texcoord0
+$input v_pos, v_normal, v_texcoord0, v_shadowcoord
 
 #include "../bgfx/examples/common/common.sh"
 
@@ -14,6 +14,7 @@ SAMPLERCUBE(s_texCube, 1);
 SAMPLER2D(s_texDiffuse, 2);
 SAMPLER2D(s_texNormal, 3);
 SAMPLER2D(s_texAORM, 4);
+SAMPLER2D(s_shadowMap, 5);
 
 vec3 getNormalFromMap()
 {
@@ -67,6 +68,12 @@ float occlusionMicrofacet(float NoV, float NoL, float roughness)
     float ggx2 = occlusionSchlickGGX(NoL, roughness);
 
     return ggx1 * ggx2;
+}
+
+float hardShadow(sampler2D _sampler, vec4 _shadowCoord, float _bias)
+{
+	vec3 texCoord = _shadowCoord.xyz/_shadowCoord.w;
+	return step(texCoord.z-_bias, unpackRgbaToFloat(texture2D(_sampler, texCoord.xy) ) );
 }
 
 void main()
@@ -172,9 +179,13 @@ void main()
 
     vec3 indirectLighting = (indirectAmbient + indirectSpecular) * ao;
 
+	// apply shadow map
+	float visibility = hardShadow(s_shadowMap, v_shadowcoord, 0.005);
+
     // combine direct and indirect lighting
-	vec3 color = directLighting + indirectLighting;
-	// color = vec3(u_usePBRMaps);
+    // vec3 color = directLighting + indirectLighting;
+    vec3 color = directLighting * visibility + indirectLighting;
+    // color = vec3(u_usePBRMaps);
 
     // gamma correction
     color = color / (color + vec3(1.0));

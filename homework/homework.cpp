@@ -394,31 +394,37 @@ namespace RenderCore {
                 // shadow map settings
                 if (!bgfx::isValid(m_shadowMapFB)) {
                     bgfx::TextureHandle shadowMapTexture = BGFX_INVALID_HANDLE;
-                    if (m_useShadowSampler) {
-                        m_shadowProgram = loadProgram("shadow_vs", "shadow_fs");
 
-                        bgfx::TextureHandle fbtextures[] =
-                                {
-                                        bgfx::createTexture2D(
-                                                m_shadowMapSize, m_shadowMapSize, false, 1, bgfx::TextureFormat::D16,
-                                                BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL
-                                        ),
-                                };
+                    m_shadowProgram = loadProgram("shadow_vs", "shadow_fs");
 
-                        shadowMapTexture = fbtextures[0];
-                        m_shadowMapFB = bgfx::createFrameBuffer(BX_COUNTOF(fbtextures), fbtextures, true);
-                    }
+                    bgfx::TextureHandle fbtextures[] =
+                            {
+                                    bgfx::createTexture2D(
+                                            m_shadowMapSize, m_shadowMapSize, false, 1, bgfx::TextureFormat::BGRA8,
+                                            BGFX_TEXTURE_RT
+                                    ),
+                                    bgfx::createTexture2D(
+                                            m_shadowMapSize, m_shadowMapSize, false, 1, bgfx::TextureFormat::D16,
+                                            BGFX_TEXTURE_RT_WRITE_ONLY
+                                    ),
+                            };
+
+                    shadowMapTexture = fbtextures[0];
+                    m_shadowMapFB = bgfx::createFrameBuffer(BX_COUNTOF(fbtextures), fbtextures, true);
+
 
                     m_state[0]->m_program = m_shadowProgram;
                     m_state[0]->m_state = 0
-                                          | (m_useShadowSampler ? 0 : BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A)
+                                          | BGFX_STATE_WRITE_A
                                           | BGFX_STATE_WRITE_Z
                                           | BGFX_STATE_DEPTH_TEST_LESS
                                           | BGFX_STATE_CULL_CCW
                                           | BGFX_STATE_MSAA;
 
                     m_state[1]->m_program = m_meshProgram;
-                    m_state[1]->m_textures[0].m_texture = shadowMapTexture;
+                    m_state[1]->m_textures[0].m_texture = m_shadowMap;
+                    m_shadowMap = shadowMapTexture;
+                    // bgfx::setTexture(0, s_shadowMap, shadowMapTexture);
                 }
 
                 // set up lights, already set up
@@ -428,7 +434,7 @@ namespace RenderCore {
                 float lightProj[16];
 
                 const bx::Vec3 at = {0.0f, 0.0f, 0.0f};
-                const bx::Vec3 eye = {-m_settings.m_lightPos[0], -m_settings.m_lightPos[1], -m_settings.m_lightPos[2]};
+                const bx::Vec3 eye = {m_settings.m_lightPos[0], m_settings.m_lightPos[1], m_settings.m_lightPos[2]};
                 bx::mtxLookAt(lightView, eye, at);
 
                 const bgfx::Caps *caps = bgfx::getCaps();
@@ -457,6 +463,26 @@ namespace RenderCore {
                 bgfx::setViewRect(SKYBOX_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 bgfx::setViewClear(SKYBOX_PASS_ID, 0, 0x303030ff, 1.0f, 0);
 
+                // cross-platform texture coordinate procession
+                float mtxShadow[16];
+                float lightMtx[16];
+
+                const float sy = caps->originBottomLeft ? 0.5f : -0.5f;
+                const float sz = caps->homogeneousDepth ? 0.5f : 1.0f;
+                const float tz = caps->homogeneousDepth ? 0.5f : 0.0f;
+                const float mtxCrop[16] =
+                        {
+                                0.5f, 0.0f, 0.0f, 0.0f,
+                                0.0f, sy, 0.0f, 0.0f,
+                                0.0f, 0.0f, sz, 0.0f,
+                                0.5f, 0.5f, tz, 1.0f,
+                        };
+
+                float mtxTmp[16];
+                bx::mtxMul(mtxTmp, lightProj, mtxCrop);
+                bx::mtxMul(mtxShadow, lightView, mtxTmp);
+
+                // load camera position to settings
                 auto cam_pos = cameraGetPosition();
                 m_settings.m_viewPos[0] = cam_pos.x;
                 m_settings.m_viewPos[1] = cam_pos.y;
@@ -478,10 +504,23 @@ namespace RenderCore {
                     float mtxFloor[16];
                     bx::mtxSRT(mtxFloor, 30.0f, 30.0f, 30.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f
                     );
+                    bx::mtxMul(lightMtx, mtxFloor, mtxShadow);
+
+                    // shadow pass
+                    bgfx::setIndexBuffer(m_planeIbh);
+                    bgfx::setVertexBuffer(0, m_planeVbh);
+                    bgfx::setState(m_state[SHADOW_PASS_ID]->m_state);
                     bgfx::setTransform(mtxFloor);
+                    bgfx::setUniform(u_lightMtx, lightMtx);
+                    bgfx::submit(SHADOW_PASS_ID, m_shadowProgram);
+
+                    // scene pass
                     bgfx::setIndexBuffer(m_planeIbh);
                     bgfx::setVertexBuffer(0, m_planeVbh);
                     bgfx::setState(m_state[SCENE_PASS_ID]->m_state);
+                    bgfx::setTransform(mtxFloor);
+                    bgfx::setTexture(5, s_shadowMap, m_shadowMap);
+                    bgfx::setUniform(u_lightMtx, lightMtx);
                     m_settings.m_isFloor = true;
                     m_uniforms.u_isFloor = m_settings.m_isFloor;
                     m_uniforms.submit();
@@ -516,21 +555,31 @@ namespace RenderCore {
 
                 // render mesh
                 {
-                    m_uniforms.submit();
+                    float model_matrix[16];
+                    // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
+                    bx::mtxTranslate(model_matrix, 0.0, 5.0, 0.0);
+
+                    // shadow pass
+                    bx::mtxMul(lightMtx, model_matrix, mtxShadow);
+                    bgfx::setUniform(u_lightMtx, lightMtx);
+                    meshSubmit(m_mesh, &m_state[0], 1, model_matrix);
+
+                    // scene pass
                     uint64_t state = 0
                                      | BGFX_STATE_WRITE_RGB
                                      | BGFX_STATE_WRITE_Z
                                      | BGFX_STATE_DEPTH_TEST_LESS
                                      | BGFX_STATE_MSAA;
-                    float model_matrix[16];
-                    // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
-                    bx::mtxTranslate(model_matrix, 0.0, 5.0, 0.0);
                     // set texture
                     bgfx::setTexture(0, s_texCubeIrr, m_texCubeIrr);
                     bgfx::setTexture(1, s_texCube, m_texCube);
                     bgfx::setTexture(2, s_texDiffuse, m_texDiffuse);
                     bgfx::setTexture(3, s_texNormal, m_texNormal);
                     bgfx::setTexture(4, s_texAORM, m_texAORM);
+                    bgfx::setTexture(5, s_shadowMap, m_shadowMap, UINT32_MAX);
+                    // submit uniforms
+                    m_uniforms.submit();
+                    bgfx::setUniform(u_lightMtx, lightMtx);
                     // draw mesh
                     meshSubmit(m_mesh, SCENE_PASS_ID, m_meshProgram, model_matrix, state);
                 }
@@ -608,6 +657,7 @@ namespace RenderCore {
         bgfx::VertexBufferHandle m_planeVbh;
         bgfx::IndexBufferHandle m_planeIbh;
         uint16_t m_shadowMapSize;
+        bgfx::TextureHandle m_shadowMap;
         bgfx::UniformHandle s_shadowMap;
         bgfx::UniformHandle u_lightPos;
         bgfx::UniformHandle u_lightMtx;
