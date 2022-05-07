@@ -53,7 +53,7 @@ namespace RenderCore {
 
     struct Uniforms {
         enum {
-            NumVec4 = 5
+            NumVec4 = 6
         };
 
         void init() {
@@ -84,6 +84,9 @@ namespace RenderCore {
                 };
                 struct {
                     float u_diffuseColor[4];
+                };
+                struct {
+                    float u_isFloor, temp0, temp1, temp2;
                 };
             };
 
@@ -124,6 +127,8 @@ namespace RenderCore {
             m_doSpecular = false;
             m_doDiffuseIbl = true;
             m_doSpecularIbl = true;
+
+            m_isFloor = false;
         }
 
         float m_lightPos[4];
@@ -134,6 +139,7 @@ namespace RenderCore {
         float m_exposure;
         bool m_usePBRMaps;
         float m_diffuseColor[4];
+        bool m_isFloor;
         bool m_doDiffuse;
         bool m_doSpecular;
         bool m_doDiffuseIbl;
@@ -172,6 +178,41 @@ namespace RenderCore {
 
             u_time = bgfx::createUniform("u_time", bgfx::UniformType::Vec4);
 
+            // init shadow map
+            m_shadowMapSize = 512;
+            s_shadowMap = bgfx::createUniform("s_shadowMap", bgfx::UniformType::Sampler);
+            u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
+            u_lightMtx = bgfx::createUniform("u_lightMtx", bgfx::UniformType::Mat4);
+
+            // When using GL clip space depth range [-1, 1] and packing depth into color buffer, we need to
+            // adjust the depth range to be [0, 1] for writing to the color buffer
+            u_depthScaleOffset = bgfx::createUniform("u_depthScaleOffset", bgfx::UniformType::Vec4);
+
+            // Get renderer capabilities info.
+            const bgfx::Caps *caps = bgfx::getCaps();
+
+            float depthScaleOffset[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+            if (caps->homogeneousDepth) {
+                depthScaleOffset[0] = 0.5f;
+                depthScaleOffset[1] = 0.5f;
+            }
+            bgfx::setUniform(u_depthScaleOffset, depthScaleOffset);
+
+            bgfx::touch(0);
+
+            PosNormalVertex::init();
+
+            // init a plane
+            m_planeVbh = bgfx::createVertexBuffer(
+                    bgfx::makeRef(s_hplaneVertices, sizeof(s_hplaneVertices)), PosNormalVertex::ms_layout
+            );
+            m_planeIbh = bgfx::createIndexBuffer(
+                    bgfx::makeRef(s_planeIndices, sizeof(s_planeIndices))
+            );
+
+            // init shadow map program
+            m_shadowProgram = loadProgram("shadow_vs", "shadow_fs");
+
             // init a cube light
             Cubes::init_cube(m_lightVbh, m_lightIbh);
             m_lightProgram = loadProgram("light_vs", "light_fs");
@@ -195,7 +236,7 @@ namespace RenderCore {
             s_texAORM = bgfx::createUniform("s_texAORM", bgfx::UniformType::Sampler);
 
             cameraCreate();
-            cameraSetPosition(bx::Vec3(0.0f, 0.0f, -10.0f));
+            cameraSetPosition(bx::Vec3(0.0f, 5.0f, -10.0f));
 
             m_skyBoxMesh = meshLoad(R"(../resource/basic_meshes/cube.bin)");
             m_skyBoxProgram = loadProgram("sky_vs", "sky_fs");
@@ -204,9 +245,31 @@ namespace RenderCore {
             m_texCubeIrr = loadTexture(R"(../resource/env_maps/kyoto_irr.dds)");
             s_texCubeIrr = bgfx::createUniform("s_texCubeIrr", bgfx::UniformType::Sampler);
 
+            // load m_state
+            m_state[0] = meshStateCreate();
+            m_state[0]->m_state = 0;
+            m_state[0]->m_program = m_shadowProgram;
+            m_state[0]->m_viewId = SHADOW_PASS_ID;
+            m_state[0]->m_numTextures = 0;
+
+            m_state[1] = meshStateCreate();
+            m_state[1]->m_state = 0
+                                  | BGFX_STATE_WRITE_RGB
+                                  | BGFX_STATE_WRITE_A
+                                  | BGFX_STATE_WRITE_Z
+                                  | BGFX_STATE_DEPTH_TEST_LESS
+                                  | BGFX_STATE_CULL_CCW
+                                  | BGFX_STATE_MSAA;
+            m_state[1]->m_program = m_meshProgram;
+            m_state[1]->m_viewId = SCENE_PASS_ID;
+            m_state[1]->m_numTextures = 1;
+            m_state[1]->m_textures[0].m_flags = UINT32_MAX;
+            m_state[1]->m_textures[0].m_stage = 0;
+            m_state[1]->m_textures[0].m_sampler = s_shadowMap;
+            m_state[1]->m_textures[0].m_texture = BGFX_INVALID_HANDLE;
+
             // load settings and uniforms
             m_uniforms.init();
-            auto a = meshStateCreate();
 
             imguiCreate();
         }
@@ -338,13 +401,31 @@ namespace RenderCore {
                 m_uniforms.u_metallic = m_settings.m_metallic;
                 m_uniforms.u_exposure = m_settings.m_exposure;
                 m_uniforms.u_usePBRMaps = m_settings.m_usePBRMaps;
+                m_uniforms.u_isFloor = m_settings.m_isFloor;
                 bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_diffuseColor, m_settings.m_diffuseColor, 4 * sizeof(float));
-                m_uniforms.submit();
 
                 const bgfx::Caps *caps = bgfx::getCaps();
+
+                // render floor
+                {
+                    float mtxFloor[16];
+                    bx::mtxSRT(mtxFloor, 30.0f, 30.0f, 30.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f
+                    );
+                    bgfx::setTransform(mtxFloor);
+                    bgfx::setIndexBuffer(m_planeIbh);
+                    bgfx::setVertexBuffer(0, m_planeVbh);
+                    bgfx::setState(m_state[SCENE_PASS_ID]->m_state);
+                    m_settings.m_isFloor = true;
+                    m_uniforms.u_isFloor = m_settings.m_isFloor;
+                    m_uniforms.submit();
+                    bgfx::submit(SCENE_PASS_ID, m_meshProgram);
+                }
+
+                m_settings.m_isFloor = false;
+                m_uniforms.u_isFloor = m_settings.m_isFloor;
 
                 // render light
                 { // Current primitive topology
@@ -356,7 +437,7 @@ namespace RenderCore {
                                      | BGFX_STATE_MSAA
                                      | BGFX_STATE_PT_TRISTRIP;
                     float mtx[16];
-
+                    m_uniforms.submit();
                     bx::mtxTranslate(mtx, m_settings.m_lightPos[0], m_settings.m_lightPos[1], m_settings.m_lightPos[2]);
                     // Set model matrix for rendering.
                     bgfx::setTransform(mtx);
@@ -380,6 +461,7 @@ namespace RenderCore {
                     // view transform 0 for mesh
                     bgfx::setViewTransform(SCENE_PASS_ID, view_matrix, proj_matrix);
 
+                    m_uniforms.submit();
                     uint64_t state = 0
                                      | BGFX_STATE_WRITE_RGB
                                      | BGFX_STATE_WRITE_Z
@@ -387,7 +469,7 @@ namespace RenderCore {
                                      | BGFX_STATE_MSAA;
                     float model_matrix[16];
                     // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
-                    bx::mtxTranslate(model_matrix, 0.0, 0.0, 0.0);
+                    bx::mtxTranslate(model_matrix, 0.0, 5.0, 0.0);
                     // set texture
                     bgfx::setTexture(0, s_texCubeIrr, m_texCubeIrr);
                     bgfx::setTexture(1, s_texCube, m_texCube);
@@ -463,6 +545,21 @@ namespace RenderCore {
         bgfx::UniformHandle u_time;
         int64_t m_timeOffset;
         int32_t m_pt;
+
+        // shadow map related
+        MeshState *m_state[2];
+        bgfx::VertexBufferHandle m_planeVbh;
+        bgfx::IndexBufferHandle m_planeIbh;
+        uint16_t m_shadowMapSize;
+        bgfx::UniformHandle s_shadowMap;
+        bgfx::UniformHandle u_lightPos;
+        bgfx::UniformHandle u_lightMtx;
+        bgfx::UniformHandle u_depthScaleOffset;
+        bgfx::ProgramHandle m_shadowProgram;
+        bool m_useShadowSampler;
+
+        float m_view[16];
+        float m_proj[16];
 
         // settings
         Settings m_settings;

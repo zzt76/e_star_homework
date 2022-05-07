@@ -87,10 +87,12 @@ void main()
     vec3 lightPos = u_lightPos.xyz;
     vec3 lightColor = u_lightColor.xyz;
 	vec3 normal = normalize(v_normal);
+
     float roughness = u_roughness;
     float metallic = u_metallic;
     float exposure = u_exposure;
     vec3 diffuseColor = u_diffuseColor.xyz;
+
     float ao = 1.0;
     if(u_usePBRMaps != 0.0){
         diffuseColor = texture2D(s_texDiffuse, v_texcoord0).rgb;
@@ -99,6 +101,14 @@ void main()
         ao = texAORM.r;
         roughness = texAORM.g;
         metallic = texAORM.b;
+    }
+
+    if(u_isFloor != 0.0){
+        roughness = 1.0;
+        metallic = 0.0;
+        exposure = 2.2;
+        diffuseColor = vec3(1.0);
+        ao = 1.0;
     }
 
 	vec3 lightDir = normalize(lightPos - v_pos);
