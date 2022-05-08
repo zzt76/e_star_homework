@@ -71,8 +71,6 @@ struct Camera {
         entry::MouseState mouseState;
         update(0.0f, mouseState, true);
 
-        entry::Key keyState;
-
         cmdAdd("move", cmdMove);
         inputAddBindings("camBindings", s_camBindings);
     }
