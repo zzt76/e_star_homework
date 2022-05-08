@@ -52,7 +52,7 @@ namespace RenderCore {
                     float u_diffuseColor[4];
                 };
                 struct {
-                    float u_isFloor, temp0, temp1, temp2;
+                    float u_isFloor, u_pcfFilterSize, temp1, temp2;
                 };
             };
 
@@ -96,6 +96,7 @@ namespace RenderCore {
 
             m_isFloor = false;
             m_usePbrMaps = false;
+            m_pcfFilterSize = 5.0;
         }
 
         float m_lightPos[4];
@@ -108,6 +109,7 @@ namespace RenderCore {
         float m_diffuseColor[4];
         bool m_isFloor;
         bool m_usePbrMaps;
+        float m_pcfFilterSize;
         bool m_doDiffuse;
         bool m_doSpecular;
         bool m_doDiffuseIbl;
@@ -131,7 +133,8 @@ namespace RenderCore {
 
             bgfx::Init init;
             // init.type = args.m_type;
-            init.type = bgfx::RendererType::OpenGL;
+            // init.type = bgfx::RendererType::OpenGL;
+            init.type = bgfx::RendererType::Direct3D11;
             init.vendorId = args.m_pciId;
             init.resolution.width = m_width;
             init.resolution.height = m_height;
@@ -301,6 +304,7 @@ namespace RenderCore {
                 ImGui::SliderFloat3("Light Pos", m_settings.m_lightPos, -50, 50);
                 ImGui::SliderFloat3("Light Color", m_settings.m_lightColor, 1, 1000);
                 ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
+                ImGui::SliderFloat("PCF Filter Size", &m_settings.m_pcfFilterSize, 1, 20);
 
                 /* ImGui File Dialog from https://github.com/gallickgunner/ImGui-Addons
                  * Under MIT license
@@ -460,6 +464,7 @@ namespace RenderCore {
                 m_uniforms.u_metallic = m_settings.m_metallic;
                 m_uniforms.u_exposure = m_settings.m_exposure;
                 m_uniforms.u_isFloor = m_settings.m_isFloor;
+                m_uniforms.u_pcfFilterSize = m_settings.m_pcfFilterSize;
                 bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
@@ -520,7 +525,9 @@ namespace RenderCore {
                     bgfx::setVertexBuffer(0, m_planeVbh);
                     bgfx::setState(m_state[SCENE_PASS_ID]->m_state);
                     bgfx::setTransform(mtxFloor);
-                    bgfx::setTexture(5, s_shadowMap, m_shadowMap);
+                    bgfx::setTexture(0, s_texCube, m_texCube);
+                    bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
+                    bgfx::setTexture(2, s_shadowMap, m_shadowMap);
                     bgfx::setUniform(u_lightMtx, lightMtx);
                     m_settings.m_isFloor = true;
                     m_uniforms.u_isFloor = m_settings.m_isFloor;

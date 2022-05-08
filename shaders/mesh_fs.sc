@@ -3,7 +3,12 @@ $input v_pos, v_normal, v_texcoord0, v_shadowcoord
 #include "../bgfx/examples/common/common.sh"
 
 #define PI 3.14159265359
+#define PI2 6.283185307179586
 #define EPS 0.000001
+#define NUM_SAMPLES 100
+#define PCF_NUM_SAMPLES NUM_SAMPLES
+#define NUM_RINGS 10
+#define BIAS 0.02
 
 #include "uniforms.sh"
 
@@ -16,21 +21,21 @@ SAMPLER2D(s_texDiffuse, 3);
 SAMPLER2D(s_texNormal, 4);
 SAMPLER2D(s_texAORM, 5);
 
-vec3 getNormalFromMap()
+vec3 getNormalFromMap(vec3 pos, vec3 normal, sampler2D texNormal, vec2 texcoord)
 {
-    vec3 tangentNormal = texture2D(s_texNormal, v_texcoord0).xyz * 2.0 - 1.0;
+    vec3 tangentNormal = texture2D(texNormal, texcoord).xyz * 2.0 - 1.0;
 
-    vec3 Q1  = dFdx(v_pos);
-    vec3 Q2  = dFdy(v_pos);
-    vec2 st1 = dFdx(v_texcoord0);
-    vec2 st2 = dFdy(v_texcoord0);
+    vec3 Q1  = dFdx(pos);
+    vec3 Q2  = dFdy(pos);
+    vec2 st1 = dFdx(texcoord);
+    vec2 st2 = dFdy(texcoord);
 
-    vec3 N   = normalize(v_normal);
-    vec3 T  = normalize(Q1*st2.t - Q2*st1.t);
+    vec3 N   = normalize(normal);
+    vec3 T  = normalize(Q1*st2.y - Q2*st1.y);
     vec3 B  = -normalize(cross(N, T));
     mat3 TBN = mat3(T, B, N);
 
-    return normalize(TBN * tangentNormal);
+    return normalize(mul(TBN, tangentNormal));
 }
 
 vec3 fresnelSchlick(float cos, vec3 f0)
@@ -76,6 +81,57 @@ float hardShadow(sampler2D _sampler, vec4 _shadowCoord, float _bias)
 	return step(texCoord.z-_bias, unpackRgbaToFloat(texture2D(_sampler, texCoord.xy) ) );
 }
 
+float rand_1to1(float x) {
+  // -1 -1
+  return fract(sin(x)*10000.0);
+}
+
+float rand_2to1(vec2 uv) {
+  // 0 - 1
+	const float a = 12.9898, b = 78.233, c = 43758.5453;
+	float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
+	return fract(sin(sn) * c);
+}
+
+vec2 poissonDisk[NUM_SAMPLES];
+
+void poissonDiskSamples(vec2 randomSeed) {
+
+  float ANGLE_STEP = PI2 * float( NUM_RINGS ) / float( NUM_SAMPLES );
+  float INV_NUM_SAMPLES = 1.0 / float( NUM_SAMPLES );
+
+  float angle = rand_2to1( randomSeed ) * PI2;
+  float radius = INV_NUM_SAMPLES;
+  float radiusStep = radius;
+
+  for( int i = 0; i < NUM_SAMPLES; i ++ ) {
+    poissonDisk[i] = vec2( cos( angle ), sin( angle ) ) * pow( radius, 0.75 );
+    radius += radiusStep;
+    angle += ANGLE_STEP;
+  }
+}
+
+float PCF(sampler2D shadowMap, vec4 coords, float filterSize) {
+
+  vec3 sp_coords = coords.xyz;
+  float sp_depth = sp_coords.z;
+  poissonDiskSamples(sp_coords.xy);
+  //uniformDiskSamples(sp_coords.xy);
+  float filter = 0.0;
+  vec2 textureResolution = vec2_splat(512.0);
+
+  for(int i=0; i < PCF_NUM_SAMPLES; i++){
+    vec2 sample_coords = sp_coords.xy + poissonDisk[i] * filterSize / textureResolution;
+    float sample_depth = unpackRgbaToFloat(texture2D(shadowMap, sample_coords));
+    if(sp_depth <= (sample_depth + BIAS)){
+      filter += 1.0;
+    }
+  }
+  filter /= float(NUM_SAMPLES);
+
+  return filter;
+}
+
 void main()
 {
 	// load textures
@@ -103,7 +159,7 @@ void main()
     float ao = 1.0;
     if(u_usePbrMaps != 0.0){
         diffuseColor = texture2D(s_texDiffuse, v_texcoord0).rgb;
-        normal = getNormalFromMap();
+        normal = getNormalFromMap(v_pos, v_normal, s_texNormal, v_texcoord0);
         vec3 texAORM = texture2D(s_texAORM, v_texcoord0).rgb;
         ao = texAORM.r;
         roughness = texAORM.g;
@@ -114,7 +170,7 @@ void main()
         roughness = 1.0;
         metallic = 0.0;
         exposure = 2.2;
-        diffuseColor = vec3(1.0);
+        diffuseColor = vec3_splat(1.0);
         ao = 1.0;
     }
 
@@ -130,7 +186,7 @@ void main()
 	float HoV = max(dot(halfVector, viewDir), 0.0);
 
 	// Lo
-	vec3 Lo = vec3(0.0);
+	vec3 Lo = vec3_splat(0.0);
 
 	// calculate Li
 	float distance = length(lightPos - v_pos);
@@ -139,7 +195,7 @@ void main()
 	// Li = lightColor;
 
 	// Fresnel
-	vec3 f0 = vec3(0.04);
+	vec3 f0 = vec3_splat(0.04);
 	f0 = mix(f0, diffuseColor, metallic);
 	vec3 F = fresnelSchlick(HoV, f0);
 
@@ -153,7 +209,7 @@ void main()
     vec3 Fs = (F * NDF * G) / (4.0 * NoV * NoL + EPS);
 
     // assume there is no refraction, then Fs + Fd = 1.0
-    vec3 Fd = vec3(1.0) - Fs;
+    vec3 Fd = vec3_splat(1.0) - Fs;
     Fd *= 1.0 - metallic;
 
     // calculate final direct lighting
@@ -162,10 +218,10 @@ void main()
     // calculate indirect lighting
     // ibl ambient
     vec3 kS = fresnelSchlick(NoV, f0, roughness);
-    vec3 kD = vec3(1.0) - kS;
+    vec3 kD = vec3_splat(1.0) - kS;
     kD *= (1.0 - metallic);
 	vec3 irradiance = toLinear(textureCube(s_texCubeIrr, normal).rgb);
-	// vec3 irradiance = vec3(0.2);
+	// vec3 irradiance = vec3_splat(0.2);
 	vec3 indirectAmbient = irradiance * diffuseColor * kD;
     // vec3 indirectAmbient = irradiance * diffuseColor * texAO;
 
@@ -180,7 +236,8 @@ void main()
     vec3 indirectLighting = (indirectAmbient + indirectSpecular) * ao;
 
 	// apply shadow map
-	float visibility = hardShadow(s_shadowMap, v_shadowcoord, 0.005);
+	// float visibility = hardShadow(s_shadowMap, v_shadowcoord, 0.005);
+	float visibility = PCF(s_shadowMap, v_shadowcoord, u_pcfFilterSize);
 
     // combine direct and indirect lighting
     // vec3 color = directLighting + indirectLighting;
@@ -188,8 +245,8 @@ void main()
     // color = vec3(u_usePBRMaps);
 
     // gamma correction
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / exposure));
+    color = color / (color + vec3_splat(1.0));
+    color = pow(color, vec3_splat(1.0 / exposure));
 
 	gl_FragColor.xyz = color;
 	// gl_FragColor.xyz = normal;

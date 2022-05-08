@@ -9,3 +9,4 @@ uniform vec4 u_params[6];
 #define u_usePbrMaps u_params[3].w
 #define u_diffuseColor u_params[4]
 #define u_isFloor u_params[5].x
+#define u_pcfFilterSize u_params[5].y
