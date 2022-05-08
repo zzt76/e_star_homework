@@ -16,11 +16,12 @@ void main()
 
 	v_pos = mul(u_model[0], vec4(pos, 1.0) ).xyz;
 
-    v_normal = mul(u_model[0], vec4(normal, 0.0) ).xyz;
+    v_normal = normalize(mul(u_model[0], vec4(normal, 0.0) ).xyz);
 
     v_texcoord0 = vec2(a_texcoord0.x, 1.0 - a_texcoord0.y);
 
-	const float shadowMapOffset = 0.001;
-	vec3 posOffset = a_position + normal * shadowMapOffset;
-	v_shadowcoord = mul(u_lightMtx, vec4(posOffset, 1.0) );
+	// const float shadowMapOffset = 0.001;
+	// vec3 posOffset = a_position + normal * shadowMapOffset;
+	// v_shadowcoord = mul(u_lightMtx, vec4(posOffset, 1.0) );
+	v_shadowcoord = mul(u_lightMtx, vec4(a_position, 1.0) );
 }

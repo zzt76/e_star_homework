@@ -67,9 +67,9 @@ namespace RenderCore {
 
     struct Settings {
         Settings() {
-            m_lightPos[0] = -5.0f;
+            m_lightPos[0] = 0.0f;
             m_lightPos[1] = 10.0f;
-            m_lightPos[2] = 1.0f;
+            m_lightPos[2] = 2.0f;
             m_lightPos[3] = 1.0f;
 
             m_lightColor[0] = 500.0f;
@@ -102,6 +102,11 @@ namespace RenderCore {
             m_useShadowMap = true;
             m_useDiffuseIBL = true;
             m_useSpecularIBL = true;
+
+            m_meshPos[0] = 0.0f;
+            m_meshPos[1] = 5.0f;
+            m_meshPos[2] = 0.0f;
+            m_meshPos[3] = 1.0f;
         }
 
         float m_lightPos[4];
@@ -120,6 +125,7 @@ namespace RenderCore {
         bool m_useDiffuseIBL;
         bool m_useSpecularIBL;
         bool m_useShadowMap;
+        float m_meshPos[4];
     };
 
     class EStarHomework : public entry::AppI {
@@ -158,7 +164,6 @@ namespace RenderCore {
             // init shadow map
             m_shadowMapSize = 512;
             s_shadowMap = bgfx::createUniform("s_shadowMap", bgfx::UniformType::Sampler);
-            u_lightPos = bgfx::createUniform("u_lightPos", bgfx::UniformType::Vec4);
             u_lightMtx = bgfx::createUniform("u_lightMtx", bgfx::UniformType::Mat4);
 
             // When using GL clip space depth range [-1, 1] and packing depth into color buffer, we need to
@@ -167,8 +172,6 @@ namespace RenderCore {
 
             // Get renderer capabilities info.
             const bgfx::Caps *caps = bgfx::getCaps();
-
-            m_useShadowMapping = true;
 
             float depthScaleOffset[4] = {1.0f, 0.0f, 0.0f, 0.0f};
             if (caps->homogeneousDepth) {
@@ -310,6 +313,9 @@ namespace RenderCore {
                 ImGui::SliderFloat3("Light Pos", m_settings.m_lightPos, -50, 50);
                 ImGui::SliderFloat3("Light Color", m_settings.m_lightColor, 1, 1000);
                 ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
+                ImGui::Separator();
+                ImGui::Text("Shadow Map:");
+                ImGui::Checkbox("Use Shadow Map", &m_settings.m_useShadowMap);
                 ImGui::SliderFloat("PCF Filter Size", &m_settings.m_pcfFilterSize, 1, 20);
 
                 /* ImGui File Dialog from https://github.com/gallickgunner/ImGui-Addons
@@ -347,6 +353,7 @@ namespace RenderCore {
                     }
 
                     ImGui::ColorEdit3("Diffuse Color", m_settings.m_diffuseColor);
+                    ImGui::SliderFloat3("Mesh Pos", m_settings.m_meshPos, -50.0, 50.0);
                     ImGui::SliderFloat("Roughness", &m_settings.m_roughness, 0.0, 1);
                     ImGui::SliderFloat("Metallic", &m_settings.m_metallic, 0.0, 1);
                     ImGui::TreePop();
@@ -425,7 +432,27 @@ namespace RenderCore {
                     // bgfx::setTexture(0, s_shadowMap, shadowMapTexture);
                 }
 
-                // set up lights, already set up
+                // load camera position to settings
+                auto camPos = cameraGetPosition();
+                m_settings.m_viewPos[0] = camPos.x;
+                m_settings.m_viewPos[1] = camPos.y;
+                m_settings.m_viewPos[2] = camPos.z;
+
+                // load settings to uniforms
+                m_uniforms.u_roughness = m_settings.m_roughness;
+                m_uniforms.u_metallic = m_settings.m_metallic;
+                m_uniforms.u_exposure = m_settings.m_exposure;
+                m_uniforms.u_isFloor = m_settings.m_isFloor;
+                m_uniforms.u_pcfFilterSize = m_settings.m_pcfFilterSize;
+                m_uniforms.u_useBlinnPhong = m_settings.m_useBlinnPhong;
+                m_uniforms.u_usePBR = m_settings.m_usePBR;
+                m_uniforms.u_useDiffuseIBL = m_settings.m_useDiffuseIBL;
+                m_uniforms.u_useSpecularIBL = m_settings.m_useSpecularIBL;
+                m_uniforms.u_useShadowMap = m_settings.m_useShadowMap;
+                bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
+                bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
+                bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
+                bx::memCopy(m_uniforms.u_diffuseColor, m_settings.m_diffuseColor, 4 * sizeof(float));
 
                 // define matrices
                 float lightView[16];
@@ -438,6 +465,25 @@ namespace RenderCore {
                 const bgfx::Caps *caps = bgfx::getCaps();
                 const float area = 30.0f;
                 bx::mtxOrtho(lightProj, -area, area, -area, area, -100.0f, 100.0f, 0.0f, caps->homogeneousDepth);
+
+                // cross-platform texture coordinate procession
+                float mtxShadow[16];
+                float lightMtx[16];
+
+                const float sy = caps->originBottomLeft ? 0.5f : -0.5f;
+                const float sz = caps->homogeneousDepth ? 0.5f : 1.0f;
+                const float tz = caps->homogeneousDepth ? 0.5f : 0.0f;
+                const float mtxCrop[16] =
+                        {
+                                0.5f, 0.0f, 0.0f, 0.0f,
+                                0.0f, sy, 0.0f, 0.0f,
+                                0.0f, 0.0f, sz, 0.0f,
+                                0.5f, 0.5f, tz, 1.0f,
+                        };
+
+                float mtxTmp[16];
+                bx::mtxMul(mtxTmp, lightProj, mtxCrop);
+                bx::mtxMul(mtxShadow, lightView, mtxTmp);
 
                 // set shadow map pass
                 bgfx::setViewRect(SHADOW_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
@@ -460,47 +506,6 @@ namespace RenderCore {
                 // set skybox pass
                 bgfx::setViewRect(SKYBOX_PASS_ID, 0, 0, uint16_t(m_width), uint16_t(m_height));
                 bgfx::setViewClear(SKYBOX_PASS_ID, 0, 0x303030ff, 1.0f, 0);
-
-                // cross-platform texture coordinate procession
-                float mtxShadow[16];
-                float lightMtx[16];
-
-                const float sy = caps->originBottomLeft ? 0.5f : -0.5f;
-                const float sz = caps->homogeneousDepth ? 0.5f : 1.0f;
-                const float tz = caps->homogeneousDepth ? 0.5f : 0.0f;
-                const float mtxCrop[16] =
-                        {
-                                0.5f, 0.0f, 0.0f, 0.0f,
-                                0.0f, sy, 0.0f, 0.0f,
-                                0.0f, 0.0f, sz, 0.0f,
-                                0.5f, 0.5f, tz, 1.0f,
-                        };
-
-                float mtxTmp[16];
-                bx::mtxMul(mtxTmp, lightProj, mtxCrop);
-                bx::mtxMul(mtxShadow, lightView, mtxTmp);
-
-                // load camera position to settings
-                auto camPos = cameraGetPosition();
-                m_settings.m_viewPos[0] = camPos.x;
-                m_settings.m_viewPos[1] = camPos.y;
-                m_settings.m_viewPos[2] = camPos.z;
-
-                // load settings to uniforms
-                m_uniforms.u_roughness = m_settings.m_roughness;
-                m_uniforms.u_metallic = m_settings.m_metallic;
-                m_uniforms.u_exposure = m_settings.m_exposure;
-                m_uniforms.u_isFloor = m_settings.m_isFloor;
-                m_uniforms.u_pcfFilterSize = m_settings.m_pcfFilterSize;
-                m_uniforms.u_useBlinnPhong = m_settings.m_useBlinnPhong;
-                m_uniforms.u_usePBR = m_settings.m_usePBR;
-                m_uniforms.u_useDiffuseIBL = m_settings.m_useDiffuseIBL;
-                m_uniforms.u_useSpecularIBL = m_settings.m_useSpecularIBL;
-                m_uniforms.u_useShadowMap = m_uniforms.u_useShadowMap;
-                bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
-                bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
-                bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
-                bx::memCopy(m_uniforms.u_diffuseColor, m_settings.m_diffuseColor, 4 * sizeof(float));
 
                 // render pbr stone
                 if (m_settings.m_visPbrStone) {
@@ -581,8 +586,12 @@ namespace RenderCore {
                                      | BGFX_STATE_PT_TRISTRIP;
                     float modelLight[16];
                     m_uniforms.submit();
-                    bx::mtxTranslate(modelLight, m_settings.m_lightPos[0], m_settings.m_lightPos[1],
-                                     m_settings.m_lightPos[2]);
+                    bx::mtxSRT(modelLight,
+                               0.5f, 0.5f, 0.5f,
+                               0.0f, 0.0f, 0.0f,
+                               m_settings.m_lightPos[0],
+                               m_settings.m_lightPos[1],
+                               m_settings.m_lightPos[2]);
                     // Set model matrix for rendering.
                     bgfx::setTransform(modelLight);
                     // Set vertex and index buffer.
@@ -616,7 +625,8 @@ namespace RenderCore {
                 {
                     float modelMesh[16];
                     // bx::mtxRotateXY(model_matrix, 0.0f, time * 0.37f);
-                    bx::mtxTranslate(modelMesh, 0.0, 5.0, 0.0);
+                    bx::mtxTranslate(modelMesh, m_settings.m_meshPos[0], m_settings.m_meshPos[1],
+                                     m_settings.m_meshPos[2]);
 
                     // shadow pass
                     bx::mtxMul(lightMtx, modelMesh, mtxShadow);
@@ -709,16 +719,11 @@ namespace RenderCore {
         uint16_t m_shadowMapSize;
         bgfx::TextureHandle m_shadowMap;
         bgfx::UniformHandle s_shadowMap;
-        bgfx::UniformHandle u_lightPos;
         bgfx::UniformHandle u_lightMtx;
         bgfx::UniformHandle u_depthScaleOffset;
         bgfx::ProgramHandle m_shadowProgram;
         bool m_shadowSamplerSupported;
-        bool m_useShadowMapping;
         bgfx::FrameBufferHandle m_shadowMapFB;
-
-        float m_view[16];
-        float m_proj[16];
 
         // settings
         Settings m_settings;
