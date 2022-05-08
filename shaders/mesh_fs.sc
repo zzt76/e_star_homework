@@ -185,59 +185,84 @@ void main()
 	float NoH = max(dot(normal, halfVector), 0.0);
 	float HoV = max(dot(halfVector, viewDir), 0.0);
 
-	// Lo
-	vec3 Lo = vec3_splat(0.0);
-
 	// calculate Li
 	float distance = length(lightPos - v_pos);
 	float attenuation = 1.0 / (distance * distance);
 	vec3 Li = lightColor * attenuation;
-	// Li = lightColor;
 
-	// Fresnel
-	vec3 f0 = vec3_splat(0.04);
-	f0 = mix(f0, diffuseColor, metallic);
-	vec3 F = fresnelSchlick(HoV, f0);
+	// define direct and indirect lighting
+	vec3 directLighting = vec3_splat(0.0);
+	vec3 indirectLighting = vec3_splat(0.0);
 
-	// Distribution of microfacet normal
-    float NDF = normalDistributionGGX(NoH, roughness);
+    // Fresnel
+    vec3 f0 = vec3_splat(0.04);
+    f0 = mix(f0, diffuseColor, metallic);
+    vec3 F = fresnelSchlick(HoV, f0);
 
-    // Geometry: microfacet occlusion relationship
-    float G = occlusionMicrofacet(NoV, NoL, roughness);
+	if(u_useBlinnPhong != 0.0){
+        // diffuse
+        vec3 diffuse = NoL * lightColor * diffuseColor;
 
-    // calculate specualr reflection energy
-    vec3 Fs = (F * NDF * G) / (4.0 * NoV * NoL + EPS);
+        // specular
+        float specularStrength = 0.5;
+        vec3 specular = pow(HoV, 32) * specularStrength * lightColor * diffuseColor;
 
-    // assume there is no refraction, then Fs + Fd = 1.0
-    vec3 Fd = vec3_splat(1.0) - Fs;
-    Fd *= 1.0 - metallic;
+        directLighting = diffuse + specular;
+	}
 
-    // calculate final direct lighting
-    vec3 directLighting = (Fd * diffuseColor / PI + Fs) * Li * NoL;
+    if(u_usePBR != 0.0){
+        // Distribution of microfacet normal
+        float NDF = normalDistributionGGX(NoH, roughness);
 
-    // calculate indirect lighting
-    // ibl ambient
-    vec3 kS = fresnelSchlick(NoV, f0, roughness);
-    vec3 kD = vec3_splat(1.0) - kS;
-    kD *= (1.0 - metallic);
-	vec3 irradiance = toLinear(textureCube(s_texCubeIrr, normal).rgb);
-	// vec3 irradiance = vec3_splat(0.2);
-	vec3 indirectAmbient = irradiance * diffuseColor * kD;
-    // vec3 indirectAmbient = irradiance * diffuseColor * texAO;
+        // Geometry: microfacet occlusion relationship
+        float G = occlusionMicrofacet(NoV, NoL, roughness);
 
-	// ibl specular
-	vec3 reflectLightDir = -reflect(viewDir, normal);
-	// vec3 reflectLightDir = 2.0 * NoV * normal - viewDir;
-	float mip = 1.0 + 5.0 * roughness;
-	reflectLightDir = fixCubeLookup(reflectLightDir, mip, 256.0);
-	vec3 radiance = toLinear(textureCubeLod(s_texCube, reflectLightDir, mip).xyz);
-    vec3 indirectSpecular = radiance * kS;
+        // calculate specualr reflection energy
+        vec3 Fs = (F * NDF * G) / (4.0 * NoV * NoL + EPS);
 
-    vec3 indirectLighting = (indirectAmbient + indirectSpecular) * ao;
+        // assume there is no refraction, then Fs + Fd = 1.0
+        vec3 Fd = vec3_splat(1.0) - Fs;
+        Fd *= 1.0 - metallic;
+
+        // calculate final direct lighting
+        directLighting = (Fd * diffuseColor / PI + Fs) * Li * NoL;
+    }
+
+    if(u_useDiffuseIBL == 0.0){
+        // ambient
+        float ambientStrength = 0.1;
+        indirectLighting += ambientStrength * normalize(lightColor) * diffuseColor;
+    }
+    else{
+        // ibl ambient
+        vec3 kS = fresnelSchlick(NoV, f0, roughness);
+        vec3 kD = vec3_splat(1.0) - kS;
+        kD *= (1.0 - metallic);
+        vec3 irradiance = toLinear(textureCube(s_texCubeIrr, normal).rgb);
+        // vec3 irradiance = vec3_splat(0.2);
+        vec3 indirectAmbient = irradiance * diffuseColor * kD;
+        // vec3 indirectAmbient = irradiance * diffuseColor * texAO;
+
+        indirectLighting += indirectAmbient * ao;
+    }
+
+    if(u_useSpecularIBL != 0.0){
+        vec3 kS = fresnelSchlick(NoV, f0, roughness);
+        // ibl specular
+        vec3 reflectLightDir = -reflect(viewDir, normal);
+        // vec3 reflectLightDir = 2.0 * NoV * normal - viewDir;
+        float mip = 1.0 + 5.0 * roughness;
+        reflectLightDir = fixCubeLookup(reflectLightDir, mip, 256.0);
+        vec3 radiance = toLinear(textureCubeLod(s_texCube, reflectLightDir, mip).xyz);
+        vec3 indirectSpecular = radiance * kS;
+        indirectLighting += indirectSpecular * ao;
+    }
 
 	// apply shadow map
-	// float visibility = hardShadow(s_shadowMap, v_shadowcoord, 0.005);
-	float visibility = PCF(s_shadowMap, v_shadowcoord, u_pcfFilterSize);
+	float visibility = 1.0;
+	if(u_useShadowMap != 0.0){
+	    visibility = PCF(s_shadowMap, v_shadowcoord, u_pcfFilterSize);
+    }
 
     // combine direct and indirect lighting
     // vec3 color = directLighting + indirectLighting;
@@ -245,7 +270,7 @@ void main()
     // color = vec3(u_usePBRMaps);
 
     // gamma correction
-    color = color / (color + vec3_splat(1.0));
+    color = color / (color + vec3_splat    (1.0));
     color = pow(color, vec3_splat(1.0 / exposure));
 
 	gl_FragColor.xyz = color;

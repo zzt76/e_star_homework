@@ -19,7 +19,7 @@ namespace RenderCore {
 
     struct Uniforms {
         enum {
-            NumVec4 = 6
+            NumVec4 = 7
         };
 
         void init() {
@@ -52,7 +52,10 @@ namespace RenderCore {
                     float u_diffuseColor[4];
                 };
                 struct {
-                    float u_isFloor, u_pcfFilterSize, temp1, temp2;
+                    float u_isFloor, u_pcfFilterSize, u_useBlinnPhong, u_usePBR;
+                };
+                struct {
+                    float u_useDiffuseIBL, u_useSpecularIBL, u_useShadowMap, temp1;
                 };
             };
 
@@ -69,9 +72,9 @@ namespace RenderCore {
             m_lightPos[2] = 1.0f;
             m_lightPos[3] = 1.0f;
 
-            m_lightColor[0] = 100.0f;
-            m_lightColor[1] = 700.0f;
-            m_lightColor[2] = 1000.0f;
+            m_lightColor[0] = 500.0f;
+            m_lightColor[1] = 500.0f;
+            m_lightColor[2] = 500.0f;
             m_lightColor[3] = 1.0f;
 
             m_viewPos[0] = 0.0f;
@@ -82,6 +85,8 @@ namespace RenderCore {
             m_roughness = 0.5f;
             m_metallic = 0.1f;
             m_exposure = 2.2f;
+            m_usePbrMaps = false;
+
             m_visPbrStone = true;
 
             m_diffuseColor[0] = 1.0f;
@@ -89,14 +94,14 @@ namespace RenderCore {
             m_diffuseColor[2] = 1.0f;
             m_diffuseColor[3] = 1.0f;
 
-            m_doDiffuse = false;
-            m_doSpecular = false;
-            m_doDiffuseIbl = true;
-            m_doSpecularIbl = true;
-
             m_isFloor = false;
-            m_usePbrMaps = false;
             m_pcfFilterSize = 5.0;
+            m_useBlinnPhong = false;
+            m_usePBR = true;
+
+            m_useShadowMap = true;
+            m_useDiffuseIBL = true;
+            m_useSpecularIBL = true;
         }
 
         float m_lightPos[4];
@@ -110,10 +115,11 @@ namespace RenderCore {
         bool m_isFloor;
         bool m_usePbrMaps;
         float m_pcfFilterSize;
-        bool m_doDiffuse;
-        bool m_doSpecular;
-        bool m_doDiffuseIbl;
-        bool m_doSpecularIbl;
+        bool m_useBlinnPhong;
+        bool m_usePBR;
+        bool m_useDiffuseIBL;
+        bool m_useSpecularIBL;
+        bool m_useShadowMap;
     };
 
     class EStarHomework : public entry::AppI {
@@ -295,9 +301,9 @@ namespace RenderCore {
 
                 showExampleDialog(this);
 
-                ImGui::SetNextWindowPos(ImVec2(m_width - m_width / 5.0f - 10.0f, 10.0f),
+                ImGui::SetNextWindowPos(ImVec2(m_width - m_width / 4.0f - 8.0f, 10.0f),
                                         ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(m_width / 5.0f, m_height / 2.0f),
+                ImGui::SetNextWindowSize(ImVec2(m_width / 4.0f, m_height * 0.9f),
                                          ImGuiCond_FirstUseEver);
                 ImGui::Begin("Settings", NULL, 0);
 
@@ -309,16 +315,37 @@ namespace RenderCore {
                 /* ImGui File Dialog from https://github.com/gallickgunner/ImGui-Addons
                  * Under MIT license
                  * */
-                if (ImGui::Button("Open Mesh"))
-                    ImGui::OpenPopup("Open Mesh");
-                if (file_dialog.showFileDialog("Open Mesh", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
-                                               ImVec2(700, 310), ".bin")) {
-                    std::cout << file_dialog.selected_path << std::endl;    // The absolute path to the selected file
-                    m_meshName = file_dialog.selected_path;
-                    m_mesh = meshLoad(m_meshName.c_str());
+                ImGui::Separator();
+                ImGui::Text("Light Model:");
+                ImGui::Checkbox("Diffuse IBL", &m_settings.m_useDiffuseIBL);
+                ImGui::Checkbox("Specular IBL", &m_settings.m_useSpecularIBL);
+                ImGui::Text("If not use IBL, use hardcoded ambient");
+                if (ImGui::Checkbox("Blinn Phong", &m_settings.m_useBlinnPhong)) {
+                    m_settings.m_usePBR = false;
+                    m_settings.m_lightColor[0] = 1.0f;
+                    m_settings.m_lightColor[1] = 1.0f;
+                    m_settings.m_lightColor[2] = 1.0f;
+                }
+                ImGui::SameLine();
+                if (ImGui::Checkbox("PBR", &m_settings.m_usePBR)) {
+                    m_settings.m_useBlinnPhong = false;
+                    m_settings.m_lightColor[0] = 500.0f;
+                    m_settings.m_lightColor[1] = 500.0f;
+                    m_settings.m_lightColor[2] = 500.0f;
+                    ImGui::SetNextItemOpen(true);
                 }
 
                 if (ImGui::TreeNode("Meshes BRDF Params")) {
+                    if (ImGui::Button("Open Mesh"))
+                        ImGui::OpenPopup("Open Mesh");
+                    if (file_dialog.showFileDialog("Open Mesh", imgui_addons::ImGuiFileBrowser::DialogMode::OPEN,
+                                                   ImVec2(700, 310), ".bin")) {
+                        std::cout << file_dialog.selected_path
+                                  << std::endl;    // The absolute path to the selected file
+                        m_meshName = file_dialog.selected_path;
+                        m_mesh = meshLoad(m_meshName.c_str());
+                    }
+
                     ImGui::ColorEdit3("Diffuse Color", m_settings.m_diffuseColor);
                     ImGui::SliderFloat("Roughness", &m_settings.m_roughness, 0.0, 1);
                     ImGui::SliderFloat("Metallic", &m_settings.m_metallic, 0.0, 1);
@@ -465,6 +492,11 @@ namespace RenderCore {
                 m_uniforms.u_exposure = m_settings.m_exposure;
                 m_uniforms.u_isFloor = m_settings.m_isFloor;
                 m_uniforms.u_pcfFilterSize = m_settings.m_pcfFilterSize;
+                m_uniforms.u_useBlinnPhong = m_settings.m_useBlinnPhong;
+                m_uniforms.u_usePBR = m_settings.m_usePBR;
+                m_uniforms.u_useDiffuseIBL = m_settings.m_useDiffuseIBL;
+                m_uniforms.u_useSpecularIBL = m_settings.m_useSpecularIBL;
+                m_uniforms.u_useShadowMap = m_uniforms.u_useShadowMap;
                 bx::memCopy(m_uniforms.u_lightPos, m_settings.m_lightPos, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_lightColor, m_settings.m_lightColor, 4 * sizeof(float));
                 bx::memCopy(m_uniforms.u_viewPos, m_settings.m_viewPos, 4 * sizeof(float));
