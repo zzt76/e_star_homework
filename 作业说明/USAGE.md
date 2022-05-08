@@ -4,7 +4,7 @@
 
 1. 本次作业使用clion进行代码编写，cmake进行项目管理
 2. 已测试使用cmake生成vs工程，vs也可以正常编译运行程序
-3. 支持OpenGL、DirectX11两种图形api
+3. 支持OpenGL、DirectX11两种图形api，可以在homework.cpp第157行修改
 4. 已编写cmake，自动编译shaders到两种图形api
 5. 已达到5个level需求
 
