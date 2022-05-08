@@ -134,17 +134,6 @@ float PCF(sampler2D shadowMap, vec4 coords, float filterSize) {
 
 void main()
 {
-	// load textures
-	// vec3 texDiffuse = texture2D(s_texDiffuse, v_texcoord0).rgb;
-	// vec3 texNormal = texture2D(s_texNormal, v_texcoord0).rgb;
-	// vec3 texAORM = texture2D(s_texAORM, v_texcoord0).rgb;
-	// float texAO = texAORM.r;
-	float texAO = 1.0;
-	// float texRoughness = texAORM.g;
-	// float texRoughness = 1.0;
-	// float texMetallic = texAORM.b;
-	// float texMetallic = 0.1;
-
     // load uniforms
     vec3 viewPos = u_viewPos.xyz;
     vec3 lightPos = u_lightPos.xyz;
@@ -155,8 +144,8 @@ void main()
     float metallic = u_metallic;
     float exposure = u_exposure;
     vec3 diffuseColor = u_diffuseColor.xyz;
-
     float ao = 1.0;
+
     if(u_usePbrMaps != 0.0){
         diffuseColor = texture2D(s_texDiffuse, v_texcoord0).rgb;
         normal = getNormalFromMap(v_pos, v_normal, s_texNormal, v_texcoord0);

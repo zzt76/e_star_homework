@@ -87,8 +87,6 @@ namespace RenderCore {
             m_exposure = 2.2f;
             m_usePbrMaps = false;
 
-            m_visPbrStone = true;
-
             m_diffuseColor[0] = 1.0f;
             m_diffuseColor[1] = 1.0f;
             m_diffuseColor[2] = 1.0f;
@@ -107,6 +105,10 @@ namespace RenderCore {
             m_meshPos[1] = 5.0f;
             m_meshPos[2] = 0.0f;
             m_meshPos[3] = 1.0f;
+
+            // not passed to uniform
+            m_visPbrStone = true;
+            m_visSkyBox = true;
         }
 
         float m_lightPos[4];
@@ -124,7 +126,10 @@ namespace RenderCore {
         bool m_usePBR;
         bool m_useDiffuseIBL;
         bool m_useSpecularIBL;
+
+        // not used in uniform
         bool m_useShadowMap;
+        bool m_visSkyBox;
         float m_meshPos[4];
     };
 
@@ -324,7 +329,9 @@ namespace RenderCore {
                 ImGui::Separator();
                 ImGui::Text("Light Model:");
                 ImGui::Checkbox("Diffuse IBL", &m_settings.m_useDiffuseIBL);
+                ImGui::SameLine();
                 ImGui::Checkbox("Specular IBL", &m_settings.m_useSpecularIBL);
+                ImGui::Checkbox("Vis Skybox", &m_settings.m_visSkyBox);
                 ImGui::Text("If not use IBL, use hardcoded ambient");
                 if (ImGui::Checkbox("Blinn Phong", &m_settings.m_useBlinnPhong)) {
                     m_settings.m_usePBR = false;
@@ -642,7 +649,7 @@ namespace RenderCore {
                 }
 
                 // render sky box
-                {
+                if (m_settings.m_visSkyBox) {
                     bgfx::setTexture(0, s_texCube, m_texCube);
                     bgfx::setTexture(1, s_texCubeIrr, m_texCubeIrr);
                     uint64_t state = 0
@@ -660,8 +667,6 @@ namespace RenderCore {
                     bx::mtxProj(proj_sky, cameraGetFoV(), float(m_width) / float(m_height),
                                 0.1f, 100.0f, caps->homogeneousDepth);
                     bgfx::setViewTransform(SKYBOX_PASS_ID, view_sky, proj_sky);
-                    // bgfx::setTexture(0, s_texCubeIrr, m_texCubeIrr);
-                    // bgfx::setTexture(1, s_texCube, m_texCube);
                     float model_sky[16];
                     bx::mtxIdentity(model_sky);
                     meshSubmit(m_skyBoxMesh, SKYBOX_PASS_ID, m_skyBoxProgram, model_sky, state);
