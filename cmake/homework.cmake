@@ -3,7 +3,7 @@ set(HOMEWORK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/homework")
 # 在此处添加文件
 set(HOMEWORK_SOURCES
         ${HOMEWORK_DIR}/homework.cpp
-        ${HOMEWORK_DIR}/meshproducer.h
+        ${HOMEWORK_DIR}/mesh_producer.h
         ${CMAKE_CURRENT_SOURCE_DIR}/bgfx/3rdparty/FileBrowser/ImGuiFileBrowser.h
         ${CMAKE_CURRENT_SOURCE_DIR}/bgfx/3rdparty/FileBrowser/ImGuiFileBrowser.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/bgfx/3rdparty/FileBrowser/Dirent/dirent.h)

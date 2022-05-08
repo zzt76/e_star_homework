@@ -3,13 +3,17 @@
  * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
+/* EStarHomework
+ * Team 09 - Zhang Zitian
+ * */
+
 #include <iostream>
 #include "common.h"
 #include "bgfx_utils.h"
 #include "camera.h"
 #include "imgui/imgui.h"
 #include "FileBrowser/ImGuiFileBrowser.h"
-#include "meshproducer.h"
+#include "mesh_producer.h"
 
 namespace RenderCore {
 
@@ -316,7 +320,7 @@ namespace RenderCore {
                 ImGui::Begin("Settings", NULL, 0);
 
                 ImGui::SliderFloat3("Light Pos", m_settings.m_lightPos, -50, 50);
-                ImGui::SliderFloat3("Light Color", m_settings.m_lightColor, 1, 1000);
+                ImGui::SliderFloat3("Light Color", m_settings.m_lightColor, 0, 1000);
                 ImGui::SliderFloat("Exposure", &m_settings.m_exposure, 1, 10);
                 ImGui::Separator();
                 ImGui::Text("Shadow Map:");

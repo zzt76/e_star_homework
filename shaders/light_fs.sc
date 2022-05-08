@@ -13,5 +13,7 @@ void main()
     float green = u_lightColor.y / sum;
     float blue = u_lightColor.z / sum;
     vec3 color = vec3(red, green, blue) * 3.0f;
+    color = color / (color + vec3_splat(1.0));
+    color = pow(color, vec3_splat(1.0 / 2.2));
 	gl_FragColor = vec4(color, 1.0f);
 }

@@ -25,14 +25,14 @@ vec3 getNormalFromMap(vec3 pos, vec3 normal, sampler2D texNormal, vec2 texcoord)
 {
     vec3 tangentNormal = texture2D(texNormal, texcoord).xyz * 2.0 - 1.0;
 
-    vec3 Q1  = dFdx(pos);
-    vec3 Q2  = dFdy(pos);
+    vec3 Q1 = dFdx(pos);
+    vec3 Q2 = dFdy(pos);
     vec2 st1 = dFdx(texcoord);
     vec2 st2 = dFdy(texcoord);
 
-    vec3 N   = normalize(normal);
-    vec3 T  = normalize(Q1*st2.y - Q2*st1.y);
-    vec3 B  = -normalize(cross(N, T));
+    vec3 N = normalize(normal);
+    vec3 T = normalize(Q1*st2.y - Q2*st1.y);
+    vec3 B = -normalize(cross(N, T));
     mat3 TBN = mat3(T, B, N);
 
     return normalize(mul(TBN, tangentNormal));
@@ -78,58 +78,53 @@ float occlusionMicrofacet(float NoV, float NoL, float roughness)
 float hardShadow(sampler2D _sampler, vec4 _shadowCoord, float _bias)
 {
 	vec3 texCoord = _shadowCoord.xyz/_shadowCoord.w;
-	return step(texCoord.z-_bias, unpackRgbaToFloat(texture2D(_sampler, texCoord.xy) ) );
+
+	return step(texCoord.z-_bias, unpackRgbaToFloat(texture2D(_sampler, texCoord.xy)));
 }
 
-float rand_1to1(float x) {
-  // -1 -1
-  return fract(sin(x)*10000.0);
-}
-
-float rand_2to1(vec2 uv) {
-  // 0 - 1
+float rand(vec2 uv) {
+    // 0 - 1
 	const float a = 12.9898, b = 78.233, c = 43758.5453;
-	float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
+	float dt = dot(uv.xy, vec2(a,b)), sn = mod(dt, PI);
+
 	return fract(sin(sn) * c);
 }
 
 vec2 poissonDisk[NUM_SAMPLES];
 
 void poissonDiskSamples(vec2 randomSeed) {
+    float ANGLE_STEP = PI2 * float(NUM_RINGS) / float(NUM_SAMPLES);
+    float INV_NUM_SAMPLES = 1.0 / float(NUM_SAMPLES);
 
-  float ANGLE_STEP = PI2 * float( NUM_RINGS ) / float( NUM_SAMPLES );
-  float INV_NUM_SAMPLES = 1.0 / float( NUM_SAMPLES );
+    float angle = rand(randomSeed) * PI2;
+    float radius = INV_NUM_SAMPLES;
+    float radiusStep = radius;
 
-  float angle = rand_2to1( randomSeed ) * PI2;
-  float radius = INV_NUM_SAMPLES;
-  float radiusStep = radius;
-
-  for( int i = 0; i < NUM_SAMPLES; i ++ ) {
-    poissonDisk[i] = vec2( cos( angle ), sin( angle ) ) * pow( radius, 0.75 );
-    radius += radiusStep;
-    angle += ANGLE_STEP;
-  }
+    for( int i = 0; i < NUM_SAMPLES; i ++ ) {
+        poissonDisk[i] = vec2(cos(angle), sin(angle)) * pow(radius, 0.75);
+        radius += radiusStep;
+        angle += ANGLE_STEP;
+    }
 }
 
 float PCF(sampler2D shadowMap, vec4 coords, float filterSize) {
+    // cited from my homework PCF of Games202
+    vec3 shadowCoords = coords.xyz;
+    float shadowDepth = shadowCoords.z;
+    poissonDiskSamples(shadowCoords.xy);
+    float filter = 0.0;
+    vec2 textureResolution = vec2_splat(512.0);
 
-  vec3 sp_coords = coords.xyz;
-  float sp_depth = sp_coords.z;
-  poissonDiskSamples(sp_coords.xy);
-  //uniformDiskSamples(sp_coords.xy);
-  float filter = 0.0;
-  vec2 textureResolution = vec2_splat(512.0);
-
-  for(int i=0; i < PCF_NUM_SAMPLES; i++){
-    vec2 sample_coords = sp_coords.xy + poissonDisk[i] * filterSize / textureResolution;
-    float sample_depth = unpackRgbaToFloat(texture2D(shadowMap, sample_coords));
-    if(sp_depth <= (sample_depth + BIAS)){
-      filter += 1.0;
+    for(int i=0; i < PCF_NUM_SAMPLES; i++){
+        vec2 sampleCoords = shadowCoords.xy + poissonDisk[i] * filterSize / textureResolution;
+        float sampleDepth = unpackRgbaToFloat(texture2D(shadowMap, sampleCoords));
+        if(shadowDepth <= (sampleDepth + BIAS)){
+            filter += 1.0;
+        }
     }
-  }
-  filter /= float(NUM_SAMPLES);
+    filter /= float(NUM_SAMPLES);
 
-  return filter;
+    return filter;
 }
 
 void main()
@@ -259,7 +254,7 @@ void main()
     // color = vec3(u_usePBRMaps);
 
     // gamma correction
-    color = color / (color + vec3_splat    (1.0));
+    color = color / (color + vec3_splat(1.0));
     color = pow(color, vec3_splat(1.0 / exposure));
 
 	gl_FragColor.xyz = color;
