@@ -287,16 +287,30 @@ namespace RenderCore {
             bgfx::destroy(s_texAORM);
             bgfx::destroy(u_time);
 
-//            bgfx::destroy(m_skyProgram);
+            meshUnload(m_skyBoxMesh);
+            bgfx::destroy(m_skyBoxProgram);
             bgfx::destroy(m_texCube);
             bgfx::destroy(m_texCubeIrr);
             bgfx::destroy(s_texCube);
             bgfx::destroy(s_texCubeIrr);
 
-            // Shutdown bgfx.
-            bgfx::shutdown();
+            m_uniforms.destroy();
+            meshUnload(m_hollowCube);
+            meshStateDestroy(m_state[0]);
+            meshStateDestroy(m_state[1]);
+            bgfx::destroy(m_planeVbh);
+            bgfx::destroy(m_planeIbh);
+            bgfx::destroy(m_shadowMap);
+            bgfx::destroy(s_shadowMap);
+            bgfx::destroy(u_lightMtx);
+            bgfx::destroy(u_depthScaleOffset);
+            bgfx::destroy(m_shadowProgram);
+            bgfx::destroy(m_shadowMapFB);
 
             cameraDestroy();
+
+            // Shutdown bgfx.
+            bgfx::shutdown();
 
             return 0;
         }
@@ -312,6 +326,7 @@ namespace RenderCore {
                 );
 
                 showExampleDialog(this);
+
 
                 ImGui::SetNextWindowPos(ImVec2(m_width - m_width / 4.0f - 8.0f, 10.0f),
                                         ImGuiCond_FirstUseEver);
